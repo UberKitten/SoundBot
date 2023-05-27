@@ -1,2 +1,2 @@
 #!/bin/sh
-hypercorn app.web.app:app -b localhost:8080 --reload
+hypercorn app.web.app:app --bind '[::]:8080' --reload
