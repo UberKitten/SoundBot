@@ -1,0 +1,21 @@
+services:
+  soundbot:
+    build: .
+    hostname: ${DOCKERHOSTNAME}
+    ports:
+      - ${SOUNDBOT_PORT_8080}:8080
+    container_name: soundbot
+    environment:
+      - PGID=${PGID}
+      - PUID=${PUID}
+      - TZ=${TZ}
+    logging:
+      driver: json-file
+      options:
+        max-file: ${DOCKERLOGGING_MAXFILE}
+        max-size: ${DOCKERLOGGING_MAXSIZE}
+    restart: always
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${DOCKERCONFDIR}/discord-soundbot/db.json:/app/mount/db.json
+      - ${DOCKERCONFDIR}/discord-soundbot/sounds:/app/mount/sounds
