@@ -1,0 +1,136 @@
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>soundboard</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <label>Filter: <input type="search" /></label>
+      <label class="pointer">
+        One sound at a time? <input type="checkbox" id="single-sound" checked />
+      </label>
+      <button id="stop">STOP</button>
+    </header>
+    <soundboard-app></soundboard-app>
+    <script>
+      /************************************************************************************
+       *************************************  CONFIG  *************************************/
+
+      const DB_PATH = "/db.json";
+      const SOUNDS_PATH = "/sounds";
+
+      /***********************************************************************************
+       ************************************************************************************/
+
+      // there's no error handling in here, but whatever - hopefully nothing breaks yeehaw
+
+      const mainAudio = document.createElement("audio");
+      const buttonAudio = [];
+
+      class Soundboard extends HTMLElement {
+        sounds = [];
+
+        connectedCallback() {
+          this.fetchSounds().then((sounds) => {
+            this.sounds = sounds;
+            this.updateButtons();
+          });
+        }
+
+        updateButtons() {
+          // uppercase then lowercase takes care of some weird case folding stuff
+          const filter = this.getAttribute("filter")
+            ?.toUpperCase()
+            .toLowerCase();
+
+          // reset children
+          this.textContent = "";
+
+          this.sounds
+            .filter(
+              ({ name }) =>
+                !filter || name.toUpperCase().toLowerCase().includes(filter)
+            )
+            .forEach((sound) => {
+              const button = document.createElement("soundboard-button");
+              button.setAttribute("sound", sound.name);
+              this.appendChild(button);
+            });
+        }
+
+        attributeChangedCallback(property, oldValue, newValue) {
+          if (property !== "filter") return;
+          if (oldValue !== newValue) {
+            this.updateButtons();
+          }
+        }
+
+        static get observedAttributes() {
+          return ["filter"];
+        }
+
+        fetchSounds() {
+          return fetch(DB_PATH)
+            .then((dbRes) => dbRes.json())
+            .then((db) => db.sounds);
+        }
+      }
+
+      customElements.define("soundboard-app", Soundboard);
+
+      class SoundboardButton extends HTMLElement {
+        connectedCallback() {
+          const soundName = this.getAttribute("sound");
+          this.textContent = soundName;
+          this.onclick = () => {
+            if (document.querySelector("input#single-sound:checked")) {
+              mainAudio.src = `${SOUNDS_PATH}/${soundName}.mp3`;
+              mainAudio.play();
+            } else {
+              const btnAudio = document.createElement("audio");
+              btnAudio.src = `${SOUNDS_PATH}/${soundName}.mp3`;
+
+              buttonAudio.push(btnAudio);
+              btnAudio.addEventListener("ended", (e) => {
+                buttonAudio.splice(buttonAudio.indexOf(e.target), 1);
+              });
+              btnAudio.play();
+            }
+          };
+        }
+      }
+
+      customElements.define("soundboard-button", SoundboardButton);
+
+      function stopButtonAudio() {
+        buttonAudio.forEach((audio) => {
+          audio.pause();
+        });
+        buttonAudio.splice(0, buttonAudio.length);
+      }
+
+      const app = document.querySelector("soundboard-app");
+
+      document
+        .querySelector("input[type=search]")
+        .addEventListener("input", (e) => {
+          app.setAttribute("filter", e.target.value);
+        });
+
+      document.querySelector("button#stop").addEventListener("click", () => {
+        mainAudio.pause();
+        stopButtonAudio();
+      });
+
+      document
+        .querySelector("input#single-sound")
+        .addEventListener("input", () => {
+          if (document.querySelector("input#single-sound:checked")) {
+            stopButtonAudio();
+          }
+        });
+    </script>
+  </body>
+</html>
