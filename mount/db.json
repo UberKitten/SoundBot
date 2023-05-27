@@ -1,0 +1,34 @@
+{
+    "entrances": {
+    },
+    "exits": {
+    },
+    "ignoreList": [],
+    "sounds": [
+      {
+        "name": "testone",
+        "count": 1,
+        "tags": []
+      },
+      {
+        "name": "testtwo",
+        "count": 1,
+        "tags": []
+      },
+      {
+        "name": "testthree",
+        "count": 1,
+        "tags": []
+      },
+      {
+        "name": "testfour",
+        "count": 1,
+        "tags": []
+      },
+      {
+        "name": "testfive",
+        "count": 1,
+        "tags": []
+      }
+    ]
+  }
