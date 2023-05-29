@@ -6,26 +6,32 @@
 
 body {
   margin: 0;
-  padding: 1rem;
   background-color: #171724;
   color: #ffffff;
   min-height: 100dvh;
+  min-width: 320px;
   font-family: system-ui, sans-serif;
   font-size: medium;
 }
 
 header {
+  padding: 1rem;
+  position: fixed;
+  width: 100%;
+  bottom: 0;
   display: flex;
   flex-wrap: wrap;
-  margin-bottom: 1rem;
   align-items: baseline;
+  background: inherit;
 }
 
 soundboard-app {
+  padding: 1rem;
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
   justify-content: space-around;
+  margin-bottom: 200px;
 }
 
 soundboard-button {
@@ -40,28 +46,94 @@ soundboard-button {
   word-wrap: break-word;
 }
 
-@media screen and (min-width: 680px) {
-  soundboard-button {
-    min-width: initial;
-    flex-basis: 15rem;
-  }
+soundboard-button > span {
+  display: block;
+  padding-bottom: 0.25rem;
 }
 
-input {
+soundboard-button > span:last-child {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.7rem;
+}
+
+header input,
+select {
   padding: 0.5rem;
-  margin: 0 1rem 1rem 0.25rem;
+  margin: 0 1rem 0 0.25rem;
   color: white;
 }
 
-input[type="search"] {
+header > * {
+  flex-grow: 1;
+}
+
+header label {
+  display: inline-block;
+  padding: 0 0 1rem 0;
+}
+
+header input[type="search"],
+header select {
   background-color: #8614a3;
+  margin: 0 1rem 0 0;
+  width: 100%;
+}
+
+header input[type="radio"] {
+  cursor: pointer;
 }
 
 button#stop {
   background-color: #bf0000;
   color: white;
-  padding: 0.5rem 1rem;
   cursor: pointer;
+  width: 100%;
+  padding: 1rem;
+}
+
+.sm-fullwidth {
+  width: 100%;
+}
+
+@media screen and (min-width: 720px) {
+  header {
+    position: sticky;
+    top: 0;
+    bottom: initial;
+    gap: 1rem 0;
+  }
+
+  .sm-fullwidth {
+    width: initial;
+  }
+
+  header > * {
+    flex-grow: 0;
+  }
+
+  soundboard-app {
+    margin-bottom: 0;
+  }
+
+  soundboard-button {
+    min-width: initial;
+    flex-basis: 15rem;
+  }
+
+  header label {
+    padding: 0;
+  }
+
+  header input[type="search"],
+  header select {
+    width: initial;
+    margin: 0 1rem 0 0.25rem;
+  }
+
+  button#stop {
+    width: initial;
+    padding: 0.5rem 1rem;
+  }
 }
 
 button,
