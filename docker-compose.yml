@@ -17,5 +17,5 @@ services:
     restart: always
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ${DOCKERCONFDIR}/discord-soundbot/db.json:/app/mount/db.json
+      - ${DOCKERCONFDIR}/discord-soundbot/db/test-db.json:/app/mount/db.json
       - ${DOCKERCONFDIR}/discord-soundbot/sounds:/app/mount/sounds
