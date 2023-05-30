@@ -1,14 +1,15 @@
-<html>
+<!DOCTYPE html>
+<html lang="en-US">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>soundboard</title>
     <!-- silly cachebust for now, i don't feel like adding build tools yet -->
-    <link rel="stylesheet" href="/styles/soundboard.css?v=2" />
+    <link rel="stylesheet" href="/styles/soundboard.css?v=3" />
   </head>
   <body>
     <header>
-      <label class="sm-fullwidth lg-mr-half">
+      <label class="sm-fullwidth lg-mr-1">
         Filter: <input type="search" />
       </label>
       <label class="sm-fullwidth lg-mr-1">
@@ -38,6 +39,8 @@
     </header>
     <soundboard-app></soundboard-app>
     <script>
+      "use strict";
+
       /************************************************************************************
        **************************************  CONFIG  *************************************/
 

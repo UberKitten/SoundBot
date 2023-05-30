@@ -21,11 +21,15 @@
 }
 
 :root {
+  --bg-color: #171724;
+  --corner-rounding: 4px;
+  --primary-color: #4241b3;
+  --border-color: rgba(255, 255, 255, 0.1);
+
   font-family: system-ui, sans-serif;
 }
 
 body {
-  --bg-color: #171724;
   margin: 0;
   background-color: var(--bg-color);
   color: #ffffff;
@@ -43,6 +47,7 @@ header {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
+  border-bottom: 1px solid var(--border-color);
 }
 
 soundboard-app {
@@ -55,7 +60,8 @@ soundboard-app {
 }
 
 soundboard-button {
-  background-color: #4241b3;
+  border-radius: var(--corner-rounding);
+  background-color: var(--primary-color);
   flex-basis: calc(50% - 1rem);
   min-width: calc(50% - 1rem);
   cursor: pointer;
@@ -94,7 +100,9 @@ header label {
 
 header input[type="search"],
 header select {
-  background-color: #8614a3;
+  border-radius: var(--corner-rounding);
+  background-color: var(--primary-color);
+  border: 0;
   width: 100%;
 }
 
@@ -103,6 +111,8 @@ header input[type="radio"] {
 }
 
 button#stop {
+  border-radius: var(--corner-rounding);
+  border: 0;
   background-color: #bf0000;
   color: white;
   cursor: pointer;
@@ -127,6 +137,7 @@ button#stop {
   bottom: 0;
   left: 0;
   padding: 1rem;
+  border-top: 1px solid var(--border-color);
 }
 
 @media screen and (min-width: 720px) {
@@ -138,6 +149,7 @@ button#stop {
   }
 
   .bottom-controls {
+    border-top: 0;
     padding: 0;
     display: inline-block;
     position: static;
