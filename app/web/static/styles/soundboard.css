@@ -76,6 +76,10 @@ soundboard-button > span:last-child {
   font-size: 0.7rem;
 }
 
+.no-sublabel {
+  padding: 2rem 0.5rem 1rem 0.5rem;
+}
+
 header input,
 select {
   padding: 0.5rem;
