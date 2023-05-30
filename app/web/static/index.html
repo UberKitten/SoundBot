@@ -4,7 +4,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>soundboard</title>
     <!-- silly cachebust for now, i don't feel like adding build tools yet -->
-    <link rel="stylesheet" href="/styles/soundboard.css?v=1" />
+    <link rel="stylesheet" href="/styles/soundboard.css?v=2" />
   </head>
   <body>
     <header>
@@ -39,15 +39,29 @@
     <soundboard-app></soundboard-app>
     <script>
       /************************************************************************************
-       *************************************  CONFIG  *************************************/
+       **************************************  CONFIG  *************************************/
 
       const DB_PATH = "/db.json";
       const SOUNDS_PATH = "/sounds";
 
       /***********************************************************************************
-       ************************************************************************************/
+       *************************************************************************************/
+
+      const versionQuery = [
+        ...document
+          .querySelector("link[rel=stylesheet]")
+          .href.matchAll(/(?<v>\?v=.+)&?/g),
+      ];
+      const v = versionQuery[0]?.groups?.v ?? "";
+
+      function appendScript(src) {
+        const script = document.createElement("script");
+        script.src = src;
+        document.body.appendChild(script);
+      }
+
+      appendScript(`/scripts/clipboard.js${v}`);
+      appendScript(`/scripts/ui.js${v}`);
     </script>
-    <script src="scripts/clipboard.js"></script>
-    <script src="scripts/ui.js"></script>
   </body>
 </html>
