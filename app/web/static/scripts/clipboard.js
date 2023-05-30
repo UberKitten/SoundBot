@@ -28,19 +28,24 @@ function copyToClipboard(text) {
 
 function copy(eTarget, _displayTarget) {
   const displayTarget = _displayTarget ?? eTarget;
-  const data = eTarget.dataset;
-  const prevContent = displayTarget.innerHTML;
-  let text = data.copyText || "";
+  const contentMutable =
+    (parseInt(eTarget.dataset.currentCopyOps, 10) || 0) === 0;
+  const prevContent = contentMutable && displayTarget.innerHTML;
+  let text = eTarget.dataset.copyText || "";
+
+  eTarget.dataset.currentCopyOps =
+    (parseInt(eTarget.dataset.currentCopyOps, 10) || 0) + 1;
 
   copyToClipboard(text)
-    .then(() => (displayTarget.innerText = "COPIED!"))
+    .then(() => contentMutable && (displayTarget.innerText = "COPIED!"))
     .catch((e) => {
       console.error(e);
-      displayTarget.innerText = "Error Copying ☹";
+      contentMutable && (displayTarget.innerText = "Error Copying ☹");
     })
     .finally(() =>
       setTimeout(() => {
-        displayTarget.innerHTML = prevContent;
-      }, 1800)
+        prevContent !== false && (displayTarget.innerHTML = prevContent);
+        eTarget.dataset.currentCopyOps -= 1;
+      }, 500)
     );
 }
