@@ -3,7 +3,7 @@ import pathlib
 
 from typing import Any, Dict, Union
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
@@ -11,8 +11,12 @@ from app.web.models import DB
 
 app = FastAPI()
 
+NO_CACHE_HEADERS = ('cache-control', 'no-store')
+
 @app.get("/db.json")
-async def db():
+async def db(response: Response):
+    response.headers[NO_CACHE_HEADERS[0]] = NO_CACHE_HEADERS[1]
+
     with open("mount/db.json") as db_file:
         db_json: Dict[str, Any] = json.load(db_file)
 

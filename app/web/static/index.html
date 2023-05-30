@@ -4,32 +4,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>soundboard</title>
     <!-- silly cachebust for now, i don't feel like adding build tools yet -->
-    <link rel="stylesheet" href="style.css?v=3" />
+    <link rel="stylesheet" href="style.css?v=4" />
   </head>
   <body>
     <header>
-      <div>
-        <label class="sm-fullwidth">Filter: <input type="search" /></label>
-        <label class="sm-fullwidth">
-          Sort:
-          <select id="sort">
-            <option value="date">Date added</option>
-            <option value="count">Play count</option>
-            <option value="alpha">Alphabetical</option>
-          </select>
-        </label>
-      </div>
-      <div>
-        <label class="pointer">
-          DESC
-          <input type="radio" name="sortorder" value="desc" checked />
-        </label>
-        <label class="pointer">
-          ASC
-          <input type="radio" name="sortorder" value="asc" />
-        </label>
+      <label class="sm-fullwidth lg-mr-half">
+        Filter: <input type="search" />
+      </label>
+      <label class="sm-fullwidth lg-mr-1">
+        Sort:
+        <select id="sort">
+          <option value="date">Date added</option>
+          <option value="count">Play count</option>
+          <option value="alpha">Alphabetical</option>
+        </select>
+      </label>
+      <label class="pointer mr-half">
+        DESC
+        <input type="radio" name="sortorder" value="desc" checked />
+      </label>
+      <label class="pointer lg-mr-1">
+        ASC
+        <input type="radio" name="sortorder" value="asc" />
+      </label>
 
-        <label class="pointer">
+      <div class="bottom-controls">
+        <label class="pointer lg-mr-1">
           One sound at a time?
           <input type="checkbox" id="single-sound" checked />
         </label>
