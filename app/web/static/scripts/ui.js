@@ -46,7 +46,7 @@ class Soundboard extends HTMLElement {
         const button = document.createElement("soundboard-button");
         button.setAttribute("sound", JSON.stringify(sound));
         button.setAttribute("sort", this.sort);
-        button.dataset.copyText = sound.name;
+        button.dataset.copyText = `!${sound.name}`;
         this.appendChild(button);
       });
   }
