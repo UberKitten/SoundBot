@@ -1,11 +1,12 @@
 import json
 import pathlib
 
-from typing import Any, Dict, Union
+from typing import Any, Dict
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+
+from starlette.templating import Jinja2Templates
 
 from app.web.models import DB
 
@@ -30,7 +31,13 @@ async def db(response: Response):
 
     return db
 
+templates = Jinja2Templates(directory='app/web/template')
+
+@app.get("/")
+async def db(request: Request):
+    return templates.TemplateResponse('index.html', {'request': request})
+
 # These must go after routes
 
-app.mount("/sounds", StaticFiles(directory="mount/sounds"), name="static")
-app.mount("/", StaticFiles(directory="app/web/static", html=True), name="static")
+app.mount("/sounds", StaticFiles(directory="mount/sounds"))
+app.mount("/", StaticFiles(directory="app/web/static", html=True))
