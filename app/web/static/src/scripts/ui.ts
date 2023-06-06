@@ -1,24 +1,27 @@
-// there's no error handling in here, but whatever - hopefully nothing breaks yeehaw
-
+import {
+  Sound,
+  addMainAudioChangeListener,
+  getActiveAudioElements,
+  isMainAudioActive,
+  isSoundObject,
+  playButtonAudio,
+  playMainAudio,
+  stopAllButtonAudio,
+  stopMainAudio,
+} from "./audio.js";
 import { copy } from "./clipboard.js";
 import { DB_PATH, SOUNDS_PATH } from "./config.js";
 import {
+  JSONData,
+  NetworkError,
   alphaSort,
+  clearError,
+  fetchJson,
   getCanonicalString,
   getDisplayDate,
   numericSort,
+  setError,
 } from "./util.js";
-
-const mainAudio = document.createElement("audio");
-const buttonAudio: Array<HTMLAudioElement> = [];
-
-interface Sound {
-  name: string;
-  filename: string;
-  modified: number;
-  count: number;
-  tags: Array<string>;
-}
 
 class Soundboard extends HTMLElement {
   sounds: Array<Sound> = [];
@@ -39,10 +42,14 @@ class Soundboard extends HTMLElement {
       sortOrder === "asc" || sortOrder === "desc" ? sortOrder : null;
     this.grid = gridContainer;
 
-    this.fetchSounds().then((sounds) => {
-      this.sounds = sounds as Array<Sound>;
-      this.updateSoundButtons();
-    });
+    clearError();
+
+    this.fetchSounds()
+      .then((sounds) => {
+        this.sounds = sounds as Array<Sound>;
+        this.updateSoundButtons();
+      })
+      .catch((error) => setError(error));
   }
 
   sortSounds(a: Sound, b: Sound) {
@@ -103,9 +110,17 @@ class Soundboard extends HTMLElement {
   }
 
   async fetchSounds() {
-    const dbRes = await fetch(DB_PATH);
-    const db = await dbRes.json();
-    return db.sounds;
+    return await fetchJson({
+      url: DB_PATH,
+      parser: (json) =>
+        json &&
+        typeof json === "object" &&
+        !Array.isArray(json) &&
+        Array.isArray(json.sounds) &&
+        !json.sounds.find((sound: unknown) => !isSoundObject(sound))
+          ? json.sounds
+          : undefined,
+    });
   }
 }
 
@@ -122,88 +137,56 @@ class SoundboardButton extends HTMLElement {
 
     const soundData = this.getAttribute("sound");
 
-    if (soundData) {
-      this.sound = JSON.parse(soundData) as Sound;
+    if (!soundData) return;
 
-      this.updateLabel();
+    this.sound = JSON.parse(soundData) as Sound;
 
-      this.onclick = (e) => {
-        const soundPath = this.getSoundPath();
-        if (!soundPath) return;
+    this.updateLabel();
+    this.updateIndicators();
+    addMainAudioChangeListener(() => this.updateIndicators());
 
-        if (
-          this.singlePlay &&
-          this.getActiveAudioElements().includes(mainAudio)
-        ) {
-          mainAudio.pause();
-          this.updateIndicators();
-          return;
-        }
+    this.onclick = (e) => {
+      if (!this.sound) return;
 
-        let audioElement = mainAudio;
-
-        if (this.singlePlay) {
-          audioElement.src = soundPath;
-          audioElement.play();
-        } else {
-          audioElement = document.createElement("audio");
-          audioElement.src = soundPath;
-
-          buttonAudio.push(audioElement);
-
-          audioElement.addEventListener("ended", (e) => {
-            buttonAudio.splice(
-              buttonAudio.indexOf(e.currentTarget as HTMLAudioElement),
-              1
-            );
-          });
-
-          audioElement.play();
-        }
-
-        ["pause", "play", "ended"].forEach((eventType) => {
-          audioElement.addEventListener(eventType, () => {
-            this.updateIndicators();
-          });
-        });
-
+      if (this.singlePlay && isMainAudioActive(this.sound)) {
+        stopMainAudio();
         this.updateIndicators();
+        return;
+      }
 
-        const currentTarget = e.currentTarget;
-        if (!(currentTarget instanceof HTMLElement)) return;
+      if (this.singlePlay) {
+        playMainAudio(this.sound);
+      } else {
+        playButtonAudio(this.sound, () => this.updateIndicators());
+      }
 
-        copy(
-          currentTarget,
-          currentTarget.querySelector(".sortDisplay") as HTMLElement | null
-        );
-      };
-    }
+      this.updateIndicators();
+
+      const currentTarget = e.currentTarget;
+      if (!(currentTarget instanceof HTMLElement)) return;
+
+      copy(
+        currentTarget,
+        currentTarget.querySelector(".sortDisplay") as HTMLElement | null
+      );
+    };
   }
 
   getSoundPath() {
     return this.sound && `${SOUNDS_PATH}/${this.sound.filename}`;
   }
 
-  getActiveAudioElements() {
-    const soundPath = this.getSoundPath();
-    return soundPath
-      ? [mainAudio, ...buttonAudio].filter(
-          (audioElement) =>
-            !audioElement.paused && audioElement.src.endsWith(soundPath)
-        )
-      : [];
-  }
-
   updateIndicators() {
-    const isPlaying = this.getActiveAudioElements().length > 0;
+    const isPlaying = getActiveAudioElements(this.sound).length > 0;
 
-    this.style.backgroundColor =
-      this.singlePlay && isPlaying ? "var(--stop-color)" : "";
+    this.singlePlay && isPlaying
+      ? this.classList.add("single-playing")
+      : this.classList.remove("single-playing");
 
     const icon = this.querySelector(".icon");
     if (!(icon instanceof HTMLElement)) return;
 
-    icon.style.visibility = isPlaying ? "initial" : "hidden";
+    isPlaying ? icon.classList.remove("hidden") : icon.classList.add("hidden");
   }
 
   updateLabel() {
@@ -228,7 +211,7 @@ class SoundboardButton extends HTMLElement {
     ]);
 
     this.innerHTML = `
-      <span class="icon">&#x1F50A;</span>
+      <span class="icon hidden">&#x1F50A;</span>
       <span>${this.sound.name}</span>
       <span class="sortDisplay">${sublabels.get(this.sort) ?? "&nbsp;"}</span>`;
 
@@ -252,6 +235,7 @@ class SoundboardButton extends HTMLElement {
     if (property === "singleplay") this.singlePlay = !!newValue;
 
     this.updateLabel();
+    this.updateIndicators();
   }
 
   static get observedAttributes() {
@@ -295,13 +279,6 @@ function init() {
     return;
   }
 
-  function stopButtonAudio() {
-    buttonAudio.forEach((audio) => {
-      audio.pause();
-    });
-    buttonAudio.splice(0, buttonAudio.length);
-  }
-
   function setFilter(search: string) {
     app.setAttribute("filter", search);
   }
@@ -327,13 +304,13 @@ function init() {
   });
 
   stopButton?.addEventListener("click", () => {
-    mainAudio.pause();
-    stopButtonAudio();
+    stopMainAudio();
+    stopAllButtonAudio();
   });
 
   singlePlayCheckbox?.addEventListener("input", (e) => {
     if ((e.currentTarget as HTMLInputElement).matches(":checked")) {
-      stopButtonAudio();
+      stopAllButtonAudio();
       if (stopButton) stopButton.innerText = "Stop";
       setSinglePlay(true);
     } else {

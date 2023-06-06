@@ -26,8 +26,14 @@ async def db(response: Response):
     for sound in db.sounds:
         sound_files = list(pathlib.Path("mount/sounds/").glob(f"{sound.name}.*"))
         if len(sound_files) > 0:
-            sound.filename = sound_files[0].name
-            sound.modified = sound_files[0].stat().st_mtime_ns
+            sound_file = sound_files[0]
+
+            for file in sound_files:
+                if file.name.endswith(".mp3"):
+                    sound_file = file
+
+            sound.filename = sound_file.name
+            sound.modified = sound_file.stat().st_mtime_ns
 
     return db
 

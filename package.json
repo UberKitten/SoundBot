@@ -4,7 +4,8 @@
   "private": true,
   "files": [],
   "scripts": {
-    "build": "cd app/web && tsc"
+    "build": "cd app/web && tsc",
+    "dev": "cd app/web && tsc --watch"
   },
   "devDependencies": {
     "typescript": "^5.1.3"
