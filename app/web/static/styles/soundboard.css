@@ -24,6 +24,7 @@
   --bg-color: #171724;
   --corner-rounding: 4px;
   --primary-color: #4241b3;
+  --alt-color: #393949;
   --border-color: rgba(255, 255, 255, 0.1);
 
   font-family: system-ui, sans-serif;
@@ -51,11 +52,16 @@ header {
 }
 
 soundboard-app {
+  display: block;
+  margin-bottom: 8rem;
   padding: 1rem;
+}
+
+soundboard-app .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
   gap: 1rem;
-  margin-bottom: 8rem;
+  margin-bottom: 1rem;
 }
 
 soundboard-button {
@@ -67,6 +73,14 @@ soundboard-button {
   padding: 1.5rem 0.5rem;
   text-align: center;
   word-wrap: break-word;
+}
+
+soundboard-button .icon {
+  visibility: hidden;
+  float: left;
+  position: relative;
+  top: -1rem;
+  left: 0.25rem;
 }
 
 soundboard-button > span {
@@ -116,6 +130,7 @@ button#stop {
   width: 100%;
   padding: 1rem;
   font-size: inherit;
+  text-transform: uppercase;
 }
 
 .sm-fullwidth {
@@ -171,6 +186,9 @@ button#stop {
 
   soundboard-app {
     margin-bottom: 0;
+  }
+
+  soundboard-app .grid {
     grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
   }
 

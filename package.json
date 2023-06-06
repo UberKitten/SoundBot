@@ -1,0 +1,12 @@
+{
+  "name": "soundbot",
+  "version": "1.0.0",
+  "private": true,
+  "files": [],
+  "scripts": {
+    "build": "cd app/web && tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.1.3"
+  }
+}

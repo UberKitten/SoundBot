@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "lib": ["ES2018", "DOM"],
+    "target": "ES2018",
+    "strict": true,
+    "module": "ES6",
+    "outDir": "static/scripts",
+    "sourceMap": true
+  }
+}

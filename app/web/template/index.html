@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>soundboard</title>
     <!-- silly cachebust for now, i don't feel like adding build tools yet -->
-    <link rel="stylesheet" href="/styles/soundboard.css?v=4" />
+    <link rel="stylesheet" href="/styles/soundboard.css?v=5" />
   </head>
   <body>
     <header>
@@ -34,21 +34,14 @@
           One sound at a time?
           <input type="checkbox" id="single-sound" checked />
         </label>
-        <button id="stop">STOP</button>
+        <button id="stop">Stop</button>
       </div>
     </header>
-    <soundboard-app></soundboard-app>
+    <soundboard-app>
+      <div class="grid"></div>
+    </soundboard-app>
     <script>
       "use strict";
-
-      /************************************************************************************
-       **************************************  CONFIG  *************************************/
-
-      const DB_PATH = "/db.json";
-      const SOUNDS_PATH = "/sounds";
-
-      /***********************************************************************************
-       *************************************************************************************/
 
       const versionQuery = [
         ...document
@@ -59,10 +52,13 @@
 
       function appendScript(src) {
         const script = document.createElement("script");
+        script.type = "module";
         script.src = src;
         document.body.appendChild(script);
       }
 
+      appendScript(`/scripts/config.js${v}`);
+      appendScript(`/scripts/util.js${v}`);
       appendScript(`/scripts/clipboard.js${v}`);
       appendScript(`/scripts/ui.js${v}`);
     </script>
