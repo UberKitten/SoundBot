@@ -25,6 +25,7 @@
   --corner-rounding: 4px;
   --primary-color: #4241b3;
   --alt-color: #393949;
+  --stop-color: #bf0000;
   --border-color: rgba(255, 255, 255, 0.1);
 
   font-family: system-ui, sans-serif;
@@ -77,10 +78,8 @@ soundboard-button {
 
 soundboard-button .icon {
   visibility: hidden;
-  float: left;
-  position: relative;
-  top: -1rem;
-  left: 0.25rem;
+  position: absolute;
+  margin-top: -1rem;
 }
 
 soundboard-button > span {
@@ -124,7 +123,7 @@ header input[type="radio"] {
 button#stop {
   border-radius: var(--corner-rounding);
   border: 0;
-  background-color: #bf0000;
+  background-color: var(--stop-color);
   color: white;
   cursor: pointer;
   width: 100%;

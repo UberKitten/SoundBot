@@ -25,11 +25,13 @@ class Soundboard extends HTMLElement {
   filter = "";
   sort: string | null = null;
   sortOrder: "asc" | "desc" | null = null;
+  singlePlay: boolean = false;
   grid?: HTMLElement | null;
 
   connectedCallback() {
     const gridContainer = this.querySelector(".grid") as HTMLElement | null;
     const sortOrder = this.getAttribute("sortorder");
+    this.singlePlay = !!this.getAttribute("singleplay");
 
     this.filter = this.getAttribute("filter") ?? "";
     this.sort = this.getAttribute("sort") ?? "";
@@ -73,6 +75,7 @@ class Soundboard extends HTMLElement {
         const button = document.createElement("soundboard-button");
         button.setAttribute("sound", JSON.stringify(sound));
         button.setAttribute("sort", this.sort ?? "");
+        if (this.singlePlay) button.setAttribute("singleplay", "true");
         button.dataset.copyText = `!${sound.name}`;
         this.grid?.appendChild(button);
       });
@@ -90,12 +93,13 @@ class Soundboard extends HTMLElement {
     if (property === "sortorder")
       this.sortOrder =
         newValue === "asc" || newValue === "desc" ? newValue : null;
+    if (property === "singleplay") this.singlePlay = !!newValue;
 
     this.updateSoundButtons();
   }
 
   static get observedAttributes() {
-    return ["filter", "sort", "sortorder"];
+    return ["filter", "sort", "sortorder", "singleplay"];
   }
 
   async fetchSounds() {
@@ -110,9 +114,11 @@ customElements.define("soundboard-app", Soundboard);
 class SoundboardButton extends HTMLElement {
   sound?: Sound;
   sort: string | null = null;
+  singlePlay: boolean | null = null;
 
   connectedCallback() {
     this.sort = this.getAttribute("sort");
+    this.singlePlay = !!this.getAttribute("singleplay");
 
     const soundData = this.getAttribute("sound");
 
@@ -122,24 +128,46 @@ class SoundboardButton extends HTMLElement {
       this.updateLabel();
 
       this.onclick = (e) => {
-        if (!this.sound) return;
+        const soundPath = this.getSoundPath();
+        if (!soundPath) return;
 
-        if (document.querySelector("input#single-sound:checked")) {
-          mainAudio.src = `${SOUNDS_PATH}/${this.sound.filename}`;
-          mainAudio.play();
+        if (
+          this.singlePlay &&
+          this.getActiveAudioElements().includes(mainAudio)
+        ) {
+          mainAudio.pause();
+          this.updateIndicators();
+          return;
+        }
+
+        let audioElement = mainAudio;
+
+        if (this.singlePlay) {
+          audioElement.src = soundPath;
+          audioElement.play();
         } else {
-          const btnAudio = document.createElement("audio");
-          btnAudio.src = `${SOUNDS_PATH}/${this.sound.filename}`;
+          audioElement = document.createElement("audio");
+          audioElement.src = soundPath;
 
-          buttonAudio.push(btnAudio);
-          btnAudio.addEventListener("ended", (e) => {
+          buttonAudio.push(audioElement);
+
+          audioElement.addEventListener("ended", (e) => {
             buttonAudio.splice(
-              buttonAudio.indexOf(e.target as HTMLAudioElement),
+              buttonAudio.indexOf(e.currentTarget as HTMLAudioElement),
               1
             );
           });
-          btnAudio.play();
+
+          audioElement.play();
         }
+
+        ["pause", "play", "ended"].forEach((eventType) => {
+          audioElement.addEventListener(eventType, () => {
+            this.updateIndicators();
+          });
+        });
+
+        this.updateIndicators();
 
         const currentTarget = e.currentTarget;
         if (!(currentTarget instanceof HTMLElement)) return;
@@ -152,15 +180,37 @@ class SoundboardButton extends HTMLElement {
     }
   }
 
+  getSoundPath() {
+    return this.sound && `${SOUNDS_PATH}/${this.sound.filename}`;
+  }
+
+  getActiveAudioElements() {
+    const soundPath = this.getSoundPath();
+    return soundPath
+      ? [mainAudio, ...buttonAudio].filter(
+          (audioElement) =>
+            !audioElement.paused && audioElement.src.endsWith(soundPath)
+        )
+      : [];
+  }
+
+  updateIndicators() {
+    const isPlaying = this.getActiveAudioElements().length > 0;
+
+    this.style.backgroundColor =
+      this.singlePlay && isPlaying ? "var(--stop-color)" : "";
+
+    const icon = this.querySelector(".icon");
+    if (!(icon instanceof HTMLElement)) return;
+
+    icon.style.visibility = isPlaying ? "initial" : "hidden";
+  }
+
   updateLabel() {
     if (!this.sound) {
       this.innerHTML = `
-        <div>
-          <span>Sound unavilable</span>
-        </div>
-        <div>
-          <span>&nbsp;</span>
-        </div>`;
+        <span>Sound unavilable</span>
+        <span>&nbsp;</span>`;
 
       return;
     }
@@ -178,13 +228,9 @@ class SoundboardButton extends HTMLElement {
     ]);
 
     this.innerHTML = `
-      <div>
-        <span class="icon">&#x1F50A;</span>
-        <span>${this.sound.name}</span>
-      </div>
-      <div>
-        <span class="sortDisplay">${sublabels.get(this.sort) ?? "&nbsp;"}</span>
-      </div>`;
+      <span class="icon">&#x1F50A;</span>
+      <span>${this.sound.name}</span>
+      <span class="sortDisplay">${sublabels.get(this.sort) ?? "&nbsp;"}</span>`;
 
     if (sublabels.get(this.sort)) {
       this.classList.remove("no-sublabel");
@@ -203,12 +249,13 @@ class SoundboardButton extends HTMLElement {
     if (property === "sound")
       this.sound = newValue ? JSON.parse(newValue) : undefined;
     if (property === "sort") this.sort = newValue;
+    if (property === "singleplay") this.singlePlay = !!newValue;
 
     this.updateLabel();
   }
 
   static get observedAttributes() {
-    return ["sound", "sort"];
+    return ["sound", "sort", "singleplay"];
   }
 }
 
@@ -232,6 +279,16 @@ function init() {
   const stopButton = document.querySelector(
     "button#stop"
   ) as HTMLButtonElement | null;
+
+  const sortOrderRadios = document.querySelectorAll(
+    "input[name=sortorder]"
+  ) as NodeListOf<HTMLInputElement>;
+
+  function getSelectedSortOrderRadio() {
+    return Array.from(sortOrderRadios).find((radio) =>
+      radio.matches(":checked")
+    ) as HTMLInputElement | null;
+  }
 
   if (!app) {
     console.error("Couldn't find app mount point");
@@ -257,6 +314,14 @@ function init() {
     app.setAttribute("sortorder", order);
   }
 
+  function setSinglePlay(singlePlay: boolean) {
+    if (singlePlay) {
+      app.setAttribute("singleplay", "true");
+    } else {
+      app.removeAttribute("singleplay");
+    }
+  }
+
   searchInput?.addEventListener("input", (e) => {
     setFilter((e.currentTarget as HTMLInputElement).value);
   });
@@ -270,8 +335,10 @@ function init() {
     if ((e.currentTarget as HTMLInputElement).matches(":checked")) {
       stopButtonAudio();
       if (stopButton) stopButton.innerText = "Stop";
+      setSinglePlay(true);
     } else {
       if (stopButton) stopButton.innerText = "Stop All";
+      setSinglePlay(false);
     }
   });
 
@@ -287,11 +354,8 @@ function init() {
 
   setFilter(searchInput?.value ?? "");
   setSort(sortSelect?.value ?? "");
-  setSortOrder(
-    singlePlayCheckbox && singlePlayCheckbox.matches(":checked")
-      ? singlePlayCheckbox.value
-      : ""
-  );
+  setSortOrder(getSelectedSortOrderRadio()?.value ?? "");
+  setSinglePlay(!!singlePlayCheckbox?.matches(":checked"));
 }
 
 init();
