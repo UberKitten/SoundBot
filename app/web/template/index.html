@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>soundboard</title>
     <!-- silly cachebust for now, i don't feel like adding build tools yet -->
-    <link rel="stylesheet" href="/styles/soundboard.css?v=5" />
+    <link rel="stylesheet" href="/styles/soundboard.css?v=6" />
   </head>
   <body>
     <header>
@@ -39,6 +39,15 @@
     </header>
     <soundboard-app>
       <div class="grid"></div>
+      <footer class="error delay-2s" id="app-error">
+        &#x26A0; the soundboard app doesn't feel like loading today :c
+      </footer>
+
+      <noscript>
+        <footer class="error">
+          &#x26A0; pls enable uwuscript to use the soundboard owo
+        </footer>
+      </noscript>
     </soundboard-app>
     <script>
       "use strict";
@@ -57,9 +66,6 @@
         document.body.appendChild(script);
       }
 
-      appendScript(`/scripts/config.js${v}`);
-      appendScript(`/scripts/util.js${v}`);
-      appendScript(`/scripts/clipboard.js${v}`);
       appendScript(`/scripts/ui.js${v}`);
     </script>
   </body>
