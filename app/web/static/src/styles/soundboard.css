@@ -50,7 +50,7 @@ header {
   padding: var(--standard-padding);
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   border-bottom: 1px solid var(--border-color);
 }
 

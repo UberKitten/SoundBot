@@ -5,7 +5,10 @@ export type JSONData =
   | string
   | number;
 
-export function parseInteger(maybeInt: string | number): number | undefined {
+export function parseInteger(
+  maybeInt: string | number | null
+): number | undefined {
+  if (maybeInt === null) return undefined;
   if (typeof maybeInt === "number")
     return Number.isNaN(maybeInt) ? undefined : Math.floor(maybeInt);
 
