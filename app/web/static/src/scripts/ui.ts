@@ -1,7 +1,7 @@
 import {
   Sound,
   addMainAudioChangeListener,
-  getActiveAudioElements,
+  getActiveAudioGroups,
   isMainAudioActive,
   isSoundObject,
   playButtonAudio,
@@ -218,7 +218,7 @@ class SoundboardButton extends HTMLElement {
   }
 
   updateIndicators() {
-    const isPlaying = getActiveAudioElements(this.sound).length > 0;
+    const isPlaying = getActiveAudioGroups(this.sound).size > 0;
 
     this.singlePlay && isPlaying
       ? this.classList.add("single-playing")

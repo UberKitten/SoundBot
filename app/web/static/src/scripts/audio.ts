@@ -1,9 +1,20 @@
 import { SOUNDS_PATH } from "config";
 import { parseInteger } from "utils";
 
-let volume = 1;
 const mainAudio = document.createElement("audio");
-const buttonAudio: Array<HTMLAudioElement> = [];
+let mainAudioCtx: AudioContext | null = null;
+let mainSound: Sound | null = null;
+let mainAudioSource: MediaElementAudioSourceNode | null = null;
+let mainAudioGain: GainNode | null = null;
+
+const buttonAudio: Map<Sound, AudioGroup> = new Map();
+
+const volumeSlider = document.querySelector(
+  "input#volume"
+) as HTMLInputElement | null;
+
+let volume = 1;
+setVolume(localStorage.getItem("volume"));
 
 export interface Sound {
   name: string;
@@ -13,27 +24,32 @@ export interface Sound {
   tags: Array<string>;
 }
 
+export interface AudioGroup {
+  element: HTMLAudioElement;
+  source: MediaElementAudioSourceNode;
+  gain: GainNode;
+}
+
 /**
  * Sets the soundboard volume
  *
  * @param vol A value between 0 and 100, inclusive. Values outside this range will be clamped
  */
-export function setVolume(vol: string | number) {
+export function setVolume(vol: string | number | null) {
   const intVol = parseInteger(vol);
-  if (typeof intVol === "undefined") {
-    console.error(
-      "Unable to set volume - passed value that couldn't be parsed as int"
-    );
-    return;
-  }
+  if (typeof intVol === "undefined") return;
+
   volume = Math.max(0, Math.min(intVol / 100, 1));
-  getActiveAudioElements().forEach(
-    (audioElement) => (audioElement.volume = volume)
-  );
+  getActiveAudioGroups().forEach(({ gain }) => {
+    gain.gain.value = volume;
+  });
+
+  if (volumeSlider) volumeSlider.value = intVol.toString();
+  localStorage.setItem("volume", intVol.toString());
 }
 
 export function getVolume() {
-  return volume;
+  return volume * 100;
 }
 
 export function isSoundObject(maybeSound: unknown) {
@@ -75,46 +91,73 @@ export function attachChangeListeners(
 }
 
 export function playButtonAudio(sound: Sound, updateCb: (e: Event) => unknown) {
-  const audioElement = document.createElement("audio");
-  audioElement.src = getSoundPath(sound);
-  audioElement.volume = volume;
+  const audioGroup = buttonAudio.get(sound);
 
-  buttonAudio.push(audioElement);
+  if (audioGroup) {
+    audioGroup.gain.gain.value = volume;
+    audioGroup.element.play();
+    attachChangeListeners(audioGroup.element, updateCb);
+  } else {
+    const element = document.createElement("audio");
+    element.src = getSoundPath(sound);
+    const audioCtx = new AudioContext();
+    const source = audioCtx.createMediaElementSource(element);
+    const gain = audioCtx.createGain();
+    source.connect(gain);
+    gain.connect(audioCtx.destination);
 
-  audioElement.addEventListener("ended", (e) => {
-    buttonAudio.splice(
-      buttonAudio.indexOf(e.currentTarget as HTMLAudioElement),
-      1
-    );
-  });
-
-  audioElement.play();
-  attachChangeListeners(audioElement, updateCb);
-  return audioElement;
+    buttonAudio.set(sound, { element, gain, source });
+    gain.gain.value = volume;
+    element.play();
+    attachChangeListeners(element, updateCb);
+  }
 }
 
 export function playMainAudio(sound: Sound) {
+  if (!mainAudioCtx) mainAudioCtx = new AudioContext();
+  if (!mainAudioSource) {
+    mainAudioSource = mainAudioCtx.createMediaElementSource(mainAudio);
+  }
+  if (!mainAudioGain) {
+    mainAudioGain = mainAudioCtx.createGain();
+    mainAudioSource.connect(mainAudioGain);
+    mainAudioGain.connect(mainAudioCtx.destination);
+  }
+
+  mainAudioGain.gain.value = volume;
+  mainSound = sound;
   mainAudio.src = getSoundPath(sound);
-  mainAudio.volume = volume;
   mainAudio.play();
 }
 
-export function getActiveAudioElements(sound?: Sound) {
-  const activeSounds = [mainAudio, ...buttonAudio].filter(
-    (audioElement) => !audioElement.paused
-  );
-
-  if (!sound) return activeSounds;
-
-  return activeSounds.filter((audioElement) =>
-    audioElement.src.endsWith(getSoundPath(sound))
+export function getActiveButtonAudioGroups(
+  sound?: Sound
+): Map<Sound, AudioGroup> {
+  return new Map(
+    [...buttonAudio.entries()].filter(([buttonSound, buttonAudioGroup]) => {
+      if (buttonAudioGroup.element.paused) return false;
+      if (sound && buttonSound !== sound) return false;
+      return true;
+    })
   );
 }
 
+export function getActiveAudioGroups(sound?: Sound): Map<Sound, AudioGroup> {
+  const audioGroups = getActiveButtonAudioGroups(sound);
+  if (!mainAudio.paused && mainSound && mainAudioGain && mainAudioSource) {
+    if (!sound || sound === mainSound)
+      audioGroups.set(mainSound, {
+        element: mainAudio,
+        gain: mainAudioGain,
+        source: mainAudioSource,
+      });
+  }
+
+  return audioGroups;
+}
+
 export function isMainAudioActive(sound?: Sound) {
-  return !!getActiveAudioElements(sound).find(
-    (audioEl) => audioEl === mainAudio
-  );
+  return (!sound || sound === mainSound) && !mainAudio.paused;
 }
 
 export function addMainAudioChangeListener(cb: (e: Event) => unknown) {
@@ -127,8 +170,6 @@ export function stopMainAudio() {
 
 export function stopAllButtonAudio() {
   buttonAudio.forEach((audio) => {
-    audio.pause();
+    audio.element.pause();
   });
-
-  buttonAudio.splice(0, buttonAudio.length);
 }
