@@ -2,12 +2,18 @@
   "name": "soundbot",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "files": [],
   "scripts": {
-    "build": "cd app/web && tsc",
-    "dev": "cd app/web && tsc --watch"
+    "build": "cd app/web && gulp",
+    "dev": "cd app/web && gulp watch"
   },
   "devDependencies": {
+    "del": "^7.0.0",
+    "gulp": "^4.0.2",
+    "gulp-cli": "^2.3.0",
+    "gulp-rev": "^10.0.0",
+    "gulp-typescript": "^6.0.0-alpha.1",
     "typescript": "^5.1.3"
   }
 }

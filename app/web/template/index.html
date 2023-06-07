@@ -4,8 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>soundboard</title>
-    <!-- silly cachebust for now, i don't feel like adding build tools yet -->
-    <link rel="stylesheet" href="/styles/soundboard.css?v=6" />
+    <link rel="stylesheet" href="/styles/{{ css_file }}" />
+    <script type="importmap">
+      {{ js_importmap | tojson }}
+    </script>
   </head>
   <body>
     <header>
@@ -49,24 +51,7 @@
         </footer>
       </noscript>
     </soundboard-app>
-    <script>
-      "use strict";
 
-      const versionQuery = [
-        ...document
-          .querySelector("link[rel=stylesheet]")
-          .href.matchAll(/(?<v>\?v=.+)&?/g),
-      ];
-      const v = versionQuery[0]?.groups?.v ?? "";
-
-      function appendScript(src) {
-        const script = document.createElement("script");
-        script.type = "module";
-        script.src = src;
-        document.body.appendChild(script);
-      }
-
-      appendScript(`/scripts/ui.js${v}`);
-    </script>
+    <script type="module" src="{{ js_importmap["imports"]["ui"] }}"></script>
   </body>
 </html>
