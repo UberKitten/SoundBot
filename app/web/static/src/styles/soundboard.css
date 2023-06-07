@@ -50,7 +50,7 @@ header {
   padding: var(--standard-padding);
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -167,6 +167,12 @@ select {
   padding: calc(var(--standard-padding) * 0.5);
   color: white;
   font-size: inherit;
+}
+
+header input[type="range"] {
+  padding: 0;
+  top: calc(var(--standard-padding) * 0.25);
+  position: relative;
 }
 
 header label {

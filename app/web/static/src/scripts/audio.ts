@@ -1,5 +1,7 @@
 import { SOUNDS_PATH } from "config";
+import { parseInteger } from "utils";
 
+let volume = 1;
 const mainAudio = document.createElement("audio");
 const buttonAudio: Array<HTMLAudioElement> = [];
 
@@ -9,6 +11,29 @@ export interface Sound {
   modified: number;
   count: number;
   tags: Array<string>;
+}
+
+/**
+ * Sets the soundboard volume
+ *
+ * @param vol A value between 0 and 100, inclusive. Values outside this range will be clamped
+ */
+export function setVolume(vol: string | number) {
+  const intVol = parseInteger(vol);
+  if (typeof intVol === "undefined") {
+    console.error(
+      "Unable to set volume - passed value that couldn't be parsed as int"
+    );
+    return;
+  }
+  volume = Math.max(0, Math.min(intVol / 100, 1));
+  getActiveAudioElements().forEach(
+    (audioElement) => (audioElement.volume = volume)
+  );
+}
+
+export function getVolume() {
+  return volume;
 }
 
 export function isSoundObject(maybeSound: unknown) {
@@ -52,6 +77,7 @@ export function attachChangeListeners(
 export function playButtonAudio(sound: Sound, updateCb: (e: Event) => unknown) {
   const audioElement = document.createElement("audio");
   audioElement.src = getSoundPath(sound);
+  audioElement.volume = volume;
 
   buttonAudio.push(audioElement);
 
@@ -69,6 +95,7 @@ export function playButtonAudio(sound: Sound, updateCb: (e: Event) => unknown) {
 
 export function playMainAudio(sound: Sound) {
   mainAudio.src = getSoundPath(sound);
+  mainAudio.volume = volume;
   mainAudio.play();
 }
 

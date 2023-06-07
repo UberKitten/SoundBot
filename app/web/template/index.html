@@ -36,13 +36,24 @@
           One sound at a time?
           <input type="checkbox" id="single-sound" checked />
         </label>
+        <label class="sm-fullwidth lg-mr-1">
+          Volume:
+          <input
+            class="sm-fullwidth"
+            type="range"
+            id="volume"
+            min="0"
+            max="100"
+            value="100"
+          />
+        </label>
         <button id="stop">Stop</button>
       </div>
     </header>
     <soundboard-app>
       <div class="grid"></div>
       <footer class="error delay-2s" id="app-error">
-        &#x26A0; the soundboard app doesn't feel like loading today :c
+        &#x26A0; the soundboard doesn't feel like loading today :c
       </footer>
 
       <noscript>
@@ -52,6 +63,8 @@
       </noscript>
     </soundboard-app>
 
-    <script type="module" src="{{ js_importmap["imports"]["ui"] }}"></script>
+    <script type="module">
+      import "ui";
+    </script>
   </body>
 </html>
