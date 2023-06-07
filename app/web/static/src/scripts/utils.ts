@@ -5,6 +5,14 @@ export type JSONData =
   | string
   | number;
 
+export function parseInteger(maybeInt: string | number): number | undefined {
+  if (typeof maybeInt === "number")
+    return Number.isNaN(maybeInt) ? undefined : Math.floor(maybeInt);
+
+  const parsedInt = parseInt(maybeInt, 10);
+  return Number.isNaN(parsedInt) ? undefined : parsedInt;
+}
+
 export function getDisplayDate(timestamp_ns: number) {
   // convert ns timestamp to ms timestamp then to Date
   const date = new Date(timestamp_ns / 1000 / 1000);
