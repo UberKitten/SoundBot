@@ -1,5 +1,6 @@
 import json
 import pathlib
+import re
 
 from typing import Any, Dict
 
@@ -12,7 +13,10 @@ from app.web.models import DB
 
 app = FastAPI()
 
+static_root = "app/web/static"
 NO_CACHE_HEADERS = ('cache-control', 'no-store')
+templates = Jinja2Templates(directory="app/web/template")
+asset_re = re.compile(".*(/scripts/|/styles/)(.+/)?(.+)-.+(\..+)$")
 
 @app.get("/db.json")
 async def db(response: Response):
@@ -37,13 +41,41 @@ async def db(response: Response):
 
     return db
 
-templates = Jinja2Templates(directory='app/web/template')
-
 @app.get("/")
-async def db(request: Request):
-    return templates.TemplateResponse('index.html', {'request': request})
+async def index(request: Request):
+    static_path = pathlib.Path(static_root)
+
+    js_files = list(static_path.joinpath("scripts").glob("**/*.js"))
+    css_files = list(static_path.joinpath("styles").glob("**/*.css"))
+
+    js_importmap:Dict[str, str] = { "imports": {} }
+
+    for js_file in js_files:
+        js_matches = asset_re.match(f"{js_file.absolute()}")
+        if js_matches:
+            asset_name = js_matches.group(3)
+            folder_name = "/scripts/" + (js_matches.group(2) or "")
+            file_name = js_file.name
+
+            js_importmap["imports"][asset_name] = folder_name + file_name
+
+    if len(css_files) >= 1:
+        css_matches = asset_re.match(f"{css_files[0].absolute()}")
+    else:
+        css_matches = None
+
+    if css_matches:
+        css_file = css_files[0].name
+    else:
+        css_file = None
+
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "css_file": css_file,
+        "js_importmap": js_importmap
+    })
 
 # These must go after routes
 
 app.mount("/sounds", StaticFiles(directory="mount/sounds"))
-app.mount("/", StaticFiles(directory="app/web/static", html=True))
+app.mount("/", StaticFiles(directory=static_root, html=True))

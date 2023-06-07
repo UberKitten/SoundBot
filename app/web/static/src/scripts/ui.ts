@@ -8,12 +8,10 @@ import {
   playMainAudio,
   stopAllButtonAudio,
   stopMainAudio,
-} from "./audio.js";
-import { copy } from "./clipboard.js";
-import { DB_PATH, SOUNDS_PATH } from "./config.js";
+} from "audio";
+import { copy } from "clipboard";
+import { DB_PATH, SOUNDS_PATH } from "config";
 import {
-  JSONData,
-  NetworkError,
   alphaSort,
   clearError,
   fetchJson,
@@ -21,7 +19,7 @@ import {
   getDisplayDate,
   numericSort,
   setError,
-} from "./util.js";
+} from "utils";
 
 class Soundboard extends HTMLElement {
   sounds: Array<Sound> = [];

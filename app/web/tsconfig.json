@@ -4,6 +4,7 @@
     "target": "ES2018",
     "strict": true,
     "module": "ES6",
+    "baseUrl": ".",
     "outDir": "static/scripts",
     "sourceMap": true
   }

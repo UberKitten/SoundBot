@@ -1,4 +1,4 @@
-import { SOUNDS_PATH } from "./config.js";
+import { SOUNDS_PATH } from "config";
 
 const mainAudio = document.createElement("audio");
 const buttonAudio: Array<HTMLAudioElement> = [];
