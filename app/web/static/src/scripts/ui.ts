@@ -83,8 +83,8 @@ class Soundboard extends HTMLElement {
             if (updatedProp === "sort")
               sortedButton.setAttribute("sort", this.sort ?? "");
 
-            this.grid?.appendChild(sortedButton.cloneNode(true));
-            this.grid?.removeChild(sortedButton);
+            // Calling appendChild with an existing node reorders it, no need to clone!
+            this.grid?.appendChild(sortedButton);
           });
       } else {
         Array.from(this.grid.children).forEach((button) => {
