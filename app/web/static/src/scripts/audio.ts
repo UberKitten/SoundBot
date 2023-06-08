@@ -7,7 +7,7 @@ let mainSound: Sound | null = null;
 let mainAudioSource: MediaElementAudioSourceNode | null = null;
 let mainAudioGain: GainNode | null = null;
 
-const buttonAudio: Map<Sound, AudioGroup> = new Map();
+const buttonAudio: Map<Sound, AudioGroup[]> = new Map();
 
 const volumeSlider = document.querySelector(
   "input#volume"
@@ -40,9 +40,9 @@ export function setVolume(vol: string | number | null) {
   if (typeof intVol === "undefined") return;
 
   volume = Math.max(0, Math.min(intVol / 100, 1));
-  getActiveAudioGroups().forEach(({ gain }) => {
-    gain.gain.value = volume;
-  });
+  getActiveAudioGroups().forEach((groups) =>
+    groups.forEach(({ gain }) => (gain.gain.value = volume))
+  );
 
   if (volumeSlider) volumeSlider.value = intVol.toString();
   localStorage.setItem("volume", intVol.toString());
@@ -91,26 +91,19 @@ export function attachChangeListeners(
 }
 
 export function playButtonAudio(sound: Sound, updateCb: (e: Event) => unknown) {
-  const audioGroup = buttonAudio.get(sound);
+  const audioGroups = buttonAudio.get(sound) ?? [];
+  const element = document.createElement("audio");
+  element.src = getSoundPath(sound);
+  const audioCtx = new AudioContext();
+  const source = audioCtx.createMediaElementSource(element);
+  const gain = audioCtx.createGain();
+  source.connect(gain);
+  gain.connect(audioCtx.destination);
 
-  if (audioGroup) {
-    audioGroup.gain.gain.value = volume;
-    audioGroup.element.play();
-    attachChangeListeners(audioGroup.element, updateCb);
-  } else {
-    const element = document.createElement("audio");
-    element.src = getSoundPath(sound);
-    const audioCtx = new AudioContext();
-    const source = audioCtx.createMediaElementSource(element);
-    const gain = audioCtx.createGain();
-    source.connect(gain);
-    gain.connect(audioCtx.destination);
-
-    buttonAudio.set(sound, { element, gain, source });
-    gain.gain.value = volume;
-    element.play();
-    attachChangeListeners(element, updateCb);
-  }
+  buttonAudio.set(sound, [...audioGroups, { element, gain, source }]);
+  gain.gain.value = volume;
+  element.play();
+  attachChangeListeners(element, updateCb);
 }
 
 export function playMainAudio(sound: Sound) {
@@ -132,25 +125,27 @@ export function playMainAudio(sound: Sound) {
 
 export function getActiveButtonAudioGroups(
   sound?: Sound
-): Map<Sound, AudioGroup> {
+): Map<Sound, AudioGroup[]> {
   return new Map(
-    [...buttonAudio.entries()].filter(([buttonSound, buttonAudioGroup]) => {
-      if (buttonAudioGroup.element.paused) return false;
-      if (sound && buttonSound !== sound) return false;
-      return true;
-    })
+    [...buttonAudio.entries()].filter(([buttonSound, audioGroups]) =>
+      audioGroups.find(
+        (group) => !group.element.paused && (!sound || buttonSound === sound)
+      )
+    )
   );
 }
 
-export function getActiveAudioGroups(sound?: Sound): Map<Sound, AudioGroup> {
+export function getActiveAudioGroups(sound?: Sound): Map<Sound, AudioGroup[]> {
   const audioGroups = getActiveButtonAudioGroups(sound);
   if (!mainAudio.paused && mainSound && mainAudioGain && mainAudioSource) {
     if (!sound || sound === mainSound)
-      audioGroups.set(mainSound, {
-        element: mainAudio,
-        gain: mainAudioGain,
-        source: mainAudioSource,
-      });
+      audioGroups.set(mainSound, [
+        {
+          element: mainAudio,
+          gain: mainAudioGain,
+          source: mainAudioSource,
+        },
+      ]);
   }
 
   return audioGroups;
@@ -169,7 +164,7 @@ export function stopMainAudio() {
 }
 
 export function stopAllButtonAudio() {
-  buttonAudio.forEach((audio) => {
-    audio.element.pause();
+  buttonAudio.forEach((groups) => {
+    groups.forEach((group) => group.element.pause());
   });
 }
