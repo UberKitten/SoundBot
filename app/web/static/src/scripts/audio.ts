@@ -1,6 +1,11 @@
 import { SOUNDS_PATH } from "config";
 import { parseInteger } from "utils";
 
+const changeListeners: Map<
+  HTMLAudioElement,
+  Array<(e: Event) => unknown>
+> = new Map();
+
 const mainAudio = document.createElement("audio");
 let mainAudioCtx: AudioContext | null = null;
 let mainSound: Sound | null = null;
@@ -85,9 +90,20 @@ export function attachChangeListeners(
   audioElement: HTMLAudioElement,
   cb: (e: Event) => unknown
 ) {
+  const existingListeners = changeListeners.get(audioElement);
+
+  if (existingListeners) {
+    existingListeners.push(cb);
+    return;
+  }
+
   ["pause", "play", "ended"].forEach((eventType) => {
-    audioElement.addEventListener(eventType, (e) => cb(e));
+    audioElement.addEventListener(eventType, (e) => {
+      changeListeners.get(audioElement)?.forEach((listener) => listener(e));
+    });
   });
+
+  changeListeners.set(audioElement, [cb]);
 }
 
 export function playButtonAudio(sound: Sound, updateCb: (e: Event) => unknown) {
