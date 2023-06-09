@@ -5,8 +5,8 @@ class Sound(BaseModel):
     name: str
     filename: Optional[str]
     modified: Optional[int]
-    count: int
-    tags: List[str]
+    count: int = 0
+    tags: List[str] = []
 
 class DB(BaseModel):
     entrances: Dict[str,str]
