@@ -1,5 +1,5 @@
 import { SOUNDS_PATH } from "config";
-import { parseInteger } from "utils";
+import { parseInteger, scheduleBackgroundTask } from "utils";
 
 const changeListeners: Map<
   HTMLAudioElement,
@@ -103,15 +103,32 @@ export function attachChangeListeners(
 
   ["pause", "play", "ended"].forEach((eventType) => {
     audioElement.addEventListener(eventType, (e) => {
-      changeListeners.get(audioElement)?.forEach((listener) => listener(e));
+      changeListeners.get(audioElement)?.forEach((listener) => {
+        scheduleBackgroundTask(() => listener(e));
+      });
     });
   });
 
   changeListeners.set(audioElement, [cb]);
 }
 
+export function detachChangeListeners(
+  audioElement: HTMLAudioElement,
+  cb: (e: Event) => unknown
+) {
+  const existingListeners = changeListeners.get(audioElement);
+  if (!existingListeners) return;
+
+  const iCB = existingListeners.indexOf(cb);
+  if (iCB === -1) return;
+
+  const cleanup = () =>
+    existingListeners.splice(existingListeners.indexOf(cb), 1);
+  scheduleBackgroundTask(cleanup);
+}
+
 export function playButtonAudio(sound: Sound, updateCb: (e: Event) => unknown) {
-  const audioGroups = buttonAudio.get(sound) ?? [];
+  const audioGroups = buttonAudio.get(sound);
   const element = document.createElement("audio");
   element.src = getSoundPath(sound);
   const audioCtx = new AudioContext();
@@ -120,10 +137,22 @@ export function playButtonAudio(sound: Sound, updateCb: (e: Event) => unknown) {
   source.connect(gain);
   gain.connect(audioCtx.destination);
 
-  buttonAudio.set(sound, [...audioGroups, { element, gain, source }]);
+  if (audioGroups) {
+    audioGroups.push({ element, gain, source });
+  } else {
+    buttonAudio.set(sound, [{ element, gain, source }]);
+  }
+
   gain.gain.value = volume;
   element.play();
   attachChangeListeners(element, updateCb);
+
+  scheduleBackgroundTask(() => {
+    for (const [, audioGroups] of buttonAudio) {
+      const activeGroups = audioGroups.filter((group) => !group.element.paused);
+      audioGroups.splice(0, audioGroups.length, ...activeGroups);
+    }
+  });
 }
 
 export function playMainAudio(sound: Sound) {
@@ -177,6 +206,10 @@ export function isMainAudioActive(sound?: Sound) {
 
 export function addMainAudioChangeListener(cb: (e: Event) => unknown) {
   return attachChangeListeners(mainAudio, cb);
+}
+
+export function removeMainAudioChangeListener(cb: (e: Event) => unknown) {
+  return detachChangeListeners(mainAudio, cb);
 }
 
 export function stopMainAudio() {

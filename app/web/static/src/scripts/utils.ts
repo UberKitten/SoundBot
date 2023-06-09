@@ -65,6 +65,37 @@ export function newElement(
   return el;
 }
 
+export function getElement<T extends HTMLElement>(selector: string): T {
+  const el = document.querySelector<T>(selector);
+  if (!el) throw new Error("Could not find element");
+  return el;
+}
+
+export function getInputElement(selector: string) {
+  return getElement<HTMLInputElement>(selector);
+}
+
+export function getSelectElement(selector: string) {
+  return getElement<HTMLSelectElement>(selector);
+}
+
+export function getButtonElement(selector: string) {
+  return getElement<HTMLButtonElement>(selector);
+}
+
+export function getElements<T extends HTMLElement>(
+  selector: string,
+  minElements = 1
+): NodeListOf<T> {
+  const el = document.querySelectorAll<T>(selector);
+  if (el.length < minElements) throw new Error("Could not find elements");
+  return el;
+}
+
+export function getInputElements(selector: string) {
+  return getElements<HTMLInputElement>(selector);
+}
+
 export async function fetchJson(options: {
   url: string;
   method?: string;
@@ -147,6 +178,7 @@ export function setError(error: unknown) {
   if (!errorDisplay || !(error instanceof Error)) {
     console.error(error);
   } else {
+    errorDisplay.innerHTML = "";
     errorDisplay.append(
       newElement("p", "&#x26A0; \nsomething is borked :c", {
         __dangerous_html: true,
@@ -172,4 +204,12 @@ export function clearError() {
   errorDisplay.innerText = "";
   errorDisplay.classList.add("no-display");
   errorDisplay.classList.remove("delay-2s");
+}
+
+export function scheduleBackgroundTask(cb: () => void) {
+  if (typeof window.requestIdleCallback !== "undefined") {
+    requestIdleCallback(cb);
+  } else {
+    requestAnimationFrame(cb);
+  }
 }
