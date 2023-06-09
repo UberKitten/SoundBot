@@ -9,6 +9,8 @@ services:
       - PGID=${PGID}
       - PUID=${PUID}
       - TZ=${TZ}
+    env_file:
+      - .env
     logging:
       driver: json-file
       options:
