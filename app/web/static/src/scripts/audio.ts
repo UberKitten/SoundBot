@@ -83,7 +83,11 @@ export function getSoundPath(sound: undefined): undefined;
 export function getSoundPath(sound: Sound): string;
 export function getSoundPath(sound?: Sound): string | undefined;
 export function getSoundPath(sound?: Sound): string | undefined {
-  return sound && `${SOUNDS_PATH}/${sound.filename}`;
+  if (!sound) return;
+
+  const soundUrl = new URL(`${SOUNDS_PATH}/${sound.filename}`, location.origin);
+  soundUrl.searchParams.append("v", sound.modified.toString());
+  return soundUrl.href;
 }
 
 export function attachChangeListeners(

@@ -213,10 +213,6 @@ class SoundboardButton extends HTMLElement {
     };
   }
 
-  getSoundPath() {
-    return this.sound && `${SOUNDS_PATH}/${this.sound.filename}`;
-  }
-
   updateIndicators() {
     const isPlaying = getActiveAudioGroups(this.sound).size > 0;
 
