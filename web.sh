@@ -1,2 +1,3 @@
 #!/bin/sh
-hypercorn app.web.app:app --bind '[::]:8080' --reload
+PORT="${1:-8080}"
+hypercorn app.web.app:app --bind "[::]:$PORT" --reload
