@@ -88,7 +88,7 @@ header {
 soundboard-app {
   display: flex;
   flex-direction: column;
-  margin-bottom: 8rem;
+  margin-bottom: calc(5rem + (8 * var(--standard-padding)));
   padding: var(--standard-padding);
   gap: var(--standard-padding);
 }
