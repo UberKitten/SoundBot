@@ -143,7 +143,8 @@ export async function fetchJson(options: {
   throw new NetworkError(parseErrorMessage, dupedRes);
 }
 
-const errorDisplay = document.querySelector("#app-error") as HTMLElement | null;
+const errorDisplay = document.querySelector<HTMLElement>("#app-error");
+const infoDisplay = document.querySelector<HTMLElement>("#app-info");
 
 export class NetworkError extends Error {
   response: Response;
@@ -180,7 +181,7 @@ export function setError(error: unknown) {
   } else {
     errorDisplay.innerText = "";
     errorDisplay.append(
-      newElement("p", "&#x26A0; \nsomething is borked :c", {
+      newElement("p", "&#x26A0; something is borked :c", {
         __dangerous_html: true,
       })
     );
@@ -204,6 +205,24 @@ export function clearError() {
   errorDisplay.innerText = "";
   errorDisplay.classList.add("no-display");
   errorDisplay.classList.remove("delay-2s");
+}
+
+export function setInfo(message: string) {
+  if (!infoDisplay) return;
+
+  infoDisplay.innerText = "";
+  infoDisplay.append(
+    newElement("p", `&#x1F6C8; ${message}`, { __dangerous_html: true })
+  );
+
+  infoDisplay.classList.remove("no-display");
+}
+
+export function clearInfo() {
+  if (!infoDisplay) return;
+
+  infoDisplay.innerText = "";
+  infoDisplay.classList.add("no-display");
 }
 
 export function scheduleBackgroundTask(cb: () => void) {

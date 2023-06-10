@@ -5,12 +5,14 @@ import {
   alphaSort,
   cancelBackgroundTasks,
   clearError,
+  clearInfo,
   fetchJson,
   getCanonicalString,
   getElement,
   numericSort,
   scheduleBackgroundTask,
   setError,
+  setInfo,
 } from "utils";
 
 export class SoundboardApp extends HTMLElement {
@@ -70,7 +72,7 @@ export class SoundboardApp extends HTMLElement {
 
   updateSoundButtons(updatedProp?: string) {
     function buttonDelay(i: number) {
-      return Math.min(i * 0.005, 0.5);
+      return Math.min(i * 0.0025, 0.5);
     }
 
     // this is ok for now since we only load sounds once
@@ -104,12 +106,13 @@ export class SoundboardApp extends HTMLElement {
             if (updatedProp === "sort")
               sortedButton.setAttribute("sort", this.sort ?? "");
 
-            // Calling appendChild with an existing node reorders it, no need to clone!
-            this.grid.appendChild(sortedButton);
             sortedButton.style.animationDelay = `${buttonDelay(
               buttons.indexOf(sortedButton)
             )}s`;
             sortedButton.classList.remove("no-display");
+
+            // Calling appendChild with an existing node reorders it, no need to clone!
+            this.grid.appendChild(sortedButton);
           });
         };
 
@@ -124,7 +127,20 @@ export class SoundboardApp extends HTMLElement {
           nextSlice = sliceIterator.next();
         }
       } else {
-        Array.from(this.grid.children).forEach((button) => {
+        const buttons = Array.from(
+          this.grid.children as HTMLCollectionOf<HTMLButtonElement>
+        );
+
+        const sounds: Map<HTMLButtonElement, Sound> = new Map();
+
+        const filteredButtons = buttons.filter((button) => {
+          if (!this.filter) return true;
+          const sound = JSON.parse(button.getAttribute("sound")!) as Sound;
+          sounds.set(button, sound);
+          return getCanonicalString(sound.name).includes(this.filter);
+        });
+
+        buttons.forEach((button) => {
           if (updatedProp === "singleplay" && this.singlePlay)
             button.setAttribute(updatedProp, "true");
 
@@ -132,15 +148,19 @@ export class SoundboardApp extends HTMLElement {
             button.removeAttribute(updatedProp);
 
           if (updatedProp === "filter") {
-            const sound: Sound = JSON.parse(button.getAttribute("sound")!);
+            button.classList.add("no-display");
 
-            if (
-              this.filter &&
-              !getCanonicalString(sound.name).includes(this.filter)
-            ) {
-              button.classList.add("no-display");
-            } else {
+            if (filteredButtons.includes(button)) {
+              button.style.animationDelay = `${buttonDelay(
+                filteredButtons.indexOf(button)
+              )}s`;
               button.classList.remove("no-display");
+            }
+
+            if (filteredButtons.length > 0) {
+              clearInfo();
+            } else {
+              setInfo(`no sounds match "${this.filter}"`);
             }
           }
         });
