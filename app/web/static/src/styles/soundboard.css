@@ -62,7 +62,7 @@ header {
   display: none;
 }
 
-@keyframes popIn {
+@keyframes fadeIn {
   from {
     opacity: 0;
   }
@@ -72,8 +72,15 @@ header {
 }
 
 .delay-2s {
-  animation-name: popIn;
+  animation-name: fadeIn;
   animation-delay: 2s;
+  animation-fill-mode: forwards;
+  opacity: 0;
+}
+
+.fade-in {
+  animation-name: fadeIn;
+  animation-duration: 0.1s;
   animation-fill-mode: forwards;
   opacity: 0;
 }
@@ -229,6 +236,7 @@ button#stop {
     top: 0;
     bottom: initial;
     gap: var(--standard-padding) 0;
+    z-index: 1;
   }
 
   .bottom-controls {

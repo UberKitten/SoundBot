@@ -69,20 +69,16 @@ export class SoundboardButton extends HTMLElement {
   }
 
   updateIndicators() {
-    scheduleBackgroundTask(() => {
-      const isPlaying = getActiveAudioGroups(this.sound).size > 0;
+    const isPlaying = getActiveAudioGroups(this.sound).size > 0;
 
-      this.singlePlay && isPlaying
-        ? this.classList.add("single-playing")
-        : this.classList.remove("single-playing");
+    this.singlePlay && isPlaying
+      ? this.classList.add("single-playing")
+      : this.classList.remove("single-playing");
 
-      const icon = this.querySelector(".icon");
-      if (!(icon instanceof HTMLElement)) return;
+    const icon = this.querySelector(".icon");
+    if (!(icon instanceof HTMLElement)) return;
 
-      isPlaying
-        ? icon.classList.remove("hidden")
-        : icon.classList.add("hidden");
-    });
+    isPlaying ? icon.classList.remove("hidden") : icon.classList.add("hidden");
   }
 
   updateLabel() {
