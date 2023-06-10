@@ -228,6 +228,7 @@ button#stop {
   left: 0;
   padding: var(--standard-padding);
   border-top: 1px solid var(--border-color);
+  z-index: 1;
 }
 
 @media screen and (min-width: 720px) {
@@ -245,6 +246,7 @@ button#stop {
     display: inline-block;
     position: static;
     width: initial;
+    z-index: inherit;
   }
 
   .lg-mr-half {
