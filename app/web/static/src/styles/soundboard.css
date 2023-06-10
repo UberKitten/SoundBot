@@ -80,7 +80,7 @@ header {
 
 .fade-in {
   animation-name: fadeIn;
-  animation-duration: 0.1s;
+  animation-duration: 0.05s;
   animation-fill-mode: forwards;
   opacity: 0;
 }
@@ -159,7 +159,7 @@ soundboard-app footer p {
   margin: 0;
 }
 
-soundboard-app footer p:first-of-type {
+soundboard-app footer.error p:first-of-type {
   border-bottom: 1px solid var(--alt-bold-color);
   margin-bottom: 0.8rem;
   padding-bottom: 0.2rem;
