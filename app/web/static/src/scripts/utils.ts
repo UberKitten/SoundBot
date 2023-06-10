@@ -178,7 +178,7 @@ export function setError(error: unknown) {
   if (!errorDisplay || !(error instanceof Error)) {
     console.error(error);
   } else {
-    errorDisplay.innerHTML = "";
+    errorDisplay.innerText = "";
     errorDisplay.append(
       newElement("p", "&#x26A0; \nsomething is borked :c", {
         __dangerous_html: true,
@@ -208,8 +208,24 @@ export function clearError() {
 
 export function scheduleBackgroundTask(cb: () => void) {
   if (typeof window.requestIdleCallback !== "undefined") {
-    requestIdleCallback(cb);
+    return requestIdleCallback(cb);
   } else {
-    requestAnimationFrame(cb);
+    return requestAnimationFrame(cb);
+  }
+}
+
+export function cancelBackgroundTask(id: number) {
+  if (typeof window.requestIdleCallback !== "undefined") {
+    return cancelIdleCallback(id);
+  } else {
+    return cancelAnimationFrame(id);
+  }
+}
+
+export function cancelBackgroundTasks(ids: number[]) {
+  if (typeof window.requestIdleCallback !== "undefined") {
+    return ids.map((id) => cancelIdleCallback(id));
+  } else {
+    return ids.map((id) => cancelAnimationFrame(id));
   }
 }

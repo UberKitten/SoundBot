@@ -3,6 +3,7 @@ import { DB_PATH } from "config";
 import { init } from "dom-init";
 import {
   alphaSort,
+  cancelBackgroundTasks,
   clearError,
   fetchJson,
   getCanonicalString,
@@ -19,6 +20,8 @@ export class SoundboardApp extends HTMLElement {
   sortOrder: "asc" | "desc" | null = null;
   singlePlay: boolean = true;
   grid: HTMLElement;
+  activeRenders: number[] = [];
+  firstRenderCompleted = false;
 
   constructor() {
     super();
@@ -66,26 +69,60 @@ export class SoundboardApp extends HTMLElement {
   }
 
   updateSoundButtons(updatedProp?: string) {
+    function buttonDelay(i: number) {
+      return Math.min(i * 0.005, 0.5);
+    }
+
     // this is ok for now since we only load sounds once
-    if (this.grid.children.length === this.sounds.length && updatedProp) {
+    if (this.firstRenderCompleted && updatedProp) {
       // update
 
       if (updatedProp === "sortorder" || updatedProp === "sort") {
-        scheduleBackgroundTask(() => {
-          Array.from(this.grid.children)
-            .sort((a, b) => {
-              const soundA: Sound = JSON.parse(a.getAttribute("sound")!);
-              const soundB: Sound = JSON.parse(b.getAttribute("sound")!);
-              return this.sortSounds(soundA, soundB);
-            })
-            .forEach((sortedButton) => {
-              if (updatedProp === "sort")
-                sortedButton.setAttribute("sort", this.sort ?? "");
+        cancelBackgroundTasks(this.activeRenders);
 
-              // Calling appendChild with an existing node reorders it, no need to clone!
-              this.grid.appendChild(sortedButton);
-            });
+        const buttons = Array.from(
+          this.grid.children as HTMLCollectionOf<HTMLButtonElement>
+        ).sort((a, b) => {
+          const soundA: Sound = JSON.parse(a.getAttribute("sound")!);
+          const soundB: Sound = JSON.parse(b.getAttribute("sound")!);
+          return this.sortSounds(soundA, soundB);
         });
+
+        buttons.forEach((button) => button.classList.add("no-display"));
+
+        const renderSliceSize = 50;
+        let iButton = 0;
+        const renderSlices: Array<HTMLButtonElement[]> = [];
+
+        while (iButton < buttons.length) {
+          renderSlices.push(buttons.slice(iButton, iButton + renderSliceSize));
+          iButton += renderSliceSize;
+        }
+
+        const renderSlice = (slice: HTMLButtonElement[]) => {
+          slice.forEach((sortedButton) => {
+            if (updatedProp === "sort")
+              sortedButton.setAttribute("sort", this.sort ?? "");
+
+            // Calling appendChild with an existing node reorders it, no need to clone!
+            this.grid.appendChild(sortedButton);
+            sortedButton.style.animationDelay = `${buttonDelay(
+              buttons.indexOf(sortedButton)
+            )}s`;
+            sortedButton.classList.remove("no-display");
+          });
+        };
+
+        const sliceIterator = renderSlices.entries();
+        let nextSlice = sliceIterator.next();
+
+        while (!nextSlice.done) {
+          const slice = nextSlice.value[1];
+          this.activeRenders.push(
+            scheduleBackgroundTask(() => renderSlice(slice))
+          );
+          nextSlice = sliceIterator.next();
+        }
       } else {
         Array.from(this.grid.children).forEach((button) => {
           if (updatedProp === "singleplay" && this.singlePlay)
@@ -111,9 +148,22 @@ export class SoundboardApp extends HTMLElement {
     } else {
       // first render with real data
 
-      this.sounds
-        .sort((a, b) => this.sortSounds(a, b))
-        .forEach((sound) => {
+      cancelBackgroundTasks(this.activeRenders);
+      this.grid.innerText = "";
+
+      const sounds = this.sounds.sort((a, b) => this.sortSounds(a, b));
+
+      const renderSliceSize = 50;
+      let iSound = 0;
+      const renderSlices: Array<Sound[]> = [];
+
+      while (iSound < sounds.length) {
+        renderSlices.push(sounds.slice(iSound, iSound + renderSliceSize));
+        iSound += renderSliceSize;
+      }
+
+      const renderSlice = (slice: Sound[]) => {
+        slice.forEach((sound) => {
           const button = document.createElement("soundboard-button");
           button.setAttribute("sound", JSON.stringify(sound));
           button.setAttribute("sort", this.sort ?? "");
@@ -123,10 +173,30 @@ export class SoundboardApp extends HTMLElement {
             !getCanonicalString(sound.name).includes(this.filter)
           )
             button.classList.add("no-display");
+
+          button.classList.add("fade-in");
+          button.style.animationDelay = `${buttonDelay(
+            sounds.indexOf(sound)
+          )}s`;
           button.dataset.copyText = `!${sound.name}`;
 
-          this.grid?.appendChild(button);
+          this.grid.appendChild(button);
         });
+
+        this.firstRenderCompleted =
+          renderSlices[renderSlices.length - 1] === slice;
+      };
+
+      const sliceIterator = renderSlices.entries();
+      let nextSlice = sliceIterator.next();
+
+      while (!nextSlice.done) {
+        const slice = nextSlice.value[1];
+        this.activeRenders.push(
+          scheduleBackgroundTask(() => renderSlice(slice))
+        );
+        nextSlice = sliceIterator.next();
+      }
     }
   }
 
