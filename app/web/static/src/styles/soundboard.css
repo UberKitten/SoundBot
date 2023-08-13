@@ -221,13 +221,17 @@ button#stop {
 
 .bottom-controls {
   background: var(--bg-color);
+  border-top: 1px solid var(--border-color);
+
   display: block;
   position: fixed;
-  width: 100%;
   bottom: 0;
   left: 0;
+  width: 100%;
+
   padding: var(--standard-padding);
-  border-top: 1px solid var(--border-color);
+  padding-bottom: calc(1.5 * var(--standard-padding));
+
   z-index: 1;
 }
 
@@ -236,7 +240,9 @@ button#stop {
     position: sticky;
     top: 0;
     bottom: initial;
+
     gap: var(--standard-padding) 0;
+
     z-index: 1;
   }
 
