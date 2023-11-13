@@ -164,3 +164,6 @@ node_modules/
 
 # Local dev docker compose file
 docker-compose.local.yml
+
+# Traefik docker compose file
+docker-compose.override.yml
