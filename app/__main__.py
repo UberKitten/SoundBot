@@ -1,9 +1,17 @@
 import logging
 
-from app.core.settings import settings
-from app.discord.client import soundbot_client
+import uvloop
 
 if __name__ == "__main__":
     logging.basicConfig(encoding="utf-8", level=logging.DEBUG)
 
-    soundbot_client.run(settings.token)
+    # Import app first which creates most loggers
+    from app.app import run
+
+    # Silence other loggers
+    for name, logger in logging.Logger.manager.loggerDict.items():
+        if not name.startswith("app"):
+            if hasattr(logger, "setLevel"):
+                logger.setLevel(logging.CRITICAL)
+
+    uvloop.run(run())
