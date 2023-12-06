@@ -17,7 +17,10 @@ asset_re = re.compile(r".*(/scripts/|/styles/)(.+/)?(.+)-.+(\..+)$")
 
 @router.get("/")
 async def index(request: Request):
-    static_path = pathlib.Path(settings.static_ui_folder)
+    """
+    Uses Jinja2 templates to serve index.html with JS and CSS resources.
+    """
+    static_path = pathlib.Path(settings.static_folder)
 
     js_files = list(static_path.joinpath("scripts").glob("**/*.js"))
     css_files = list(static_path.joinpath("styles").glob("**/*.css"))

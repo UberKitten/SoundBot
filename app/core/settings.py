@@ -11,12 +11,13 @@ class Settings(BaseSettings):
     # Used for local command registration
     test_guild_ids: Optional[str] = None  # comma separated
 
-    state_file: str = "state.json"
+    state_file: str = "mount/state.json"
+    db_file: str = "mount/db.json"
 
-    static_ui_folder: str = "web/static"
+    static_folder: str = "web/static"
     templates_folder: str = "web/template"
 
-    sounds_root: str = "mount/sounds"
+    sounds_folder: str = "mount/sounds"
 
 
 settings = Settings()

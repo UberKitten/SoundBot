@@ -1,13 +1,18 @@
-import json
 from pathlib import Path
+from typing import Dict
 
+import orjson
 from pydantic import BaseModel
 
 from app.core.settings import settings
+from app.models.sounds import Sound
 
 
 class State(BaseModel):
-    token: None = None
+    entrances: Dict[str, str] = {}
+    exits: Dict[str, str] = {}
+
+    sounds: Dict[str, Sound] = {}
 
     def save(self):
         Path(settings.state_file).write_text(
@@ -19,10 +24,13 @@ class State(BaseModel):
     def load():
         path = Path(settings.state_file)
         if path.exists():
-            json_object = json.loads(path.read_text())
+            json_object = orjson.loads(path.read_text())
             return State(**json_object)
         else:
             return State()
 
 
-state = State.load()
+# Don't actually use what we load from state, for now
+State.load()
+state = State()
+# state = State.load()

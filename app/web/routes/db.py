@@ -7,27 +7,30 @@ from fastapi import APIRouter, Depends
 
 from app.core.settings import settings
 from app.web.dependencies import no_cache
-from app.web.models import DB, Sound
+from app.web.models import OldDB, OldSound
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.get("/db.json", dependencies=[Depends(no_cache)])
-async def db():
-    sound_path = pathlib.Path(settings.sounds_root)
+async def old_db():
+    """
+    Old method for compatibility.
+    """
 
-    with open("mount/db.json") as db_file:
+    with open(settings.db_file) as db_file:
         db_json: Dict[str, Any] = json.load(db_file)
 
-    db = DB.parse_obj(db_json)
+    db = OldDB(**db_json)
 
     # Add in sounds that aren't in the existing db
     sound_names = [sound.name for sound in db.sounds]
 
+    sound_path = pathlib.Path(settings.sounds_folder)
     for sound_path_file in sound_path.glob("*"):
         if sound_path_file.is_file() and sound_path_file.stem not in sound_names:
-            db.sounds.append(Sound(name=sound_path_file.stem))
+            db.sounds.append(OldSound(name=sound_path_file.stem))
 
     # Fill in file info for each sound
     for sound in db.sounds:

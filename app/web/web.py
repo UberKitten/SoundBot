@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
 from app.core.settings import settings
-from app.web.api.api import router as api
+from app.web.routes.router import router
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +32,17 @@ def get_web():
             allow_headers=["*"],
         )
 
-        web.include_router(api, prefix="/api")
+        web.include_router(router)
 
-        web.mount("/sounds", StaticFiles(directory=settings.sounds_root))
+        sounds_path = Path(settings.sounds_folder)
+        if sounds_path.exists():
+            web.mount(
+                "/sounds", StaticFiles(directory=sounds_path.absolute()), name="sounds"
+            )
+        else:
+            logger.warn(f"Sounds folder {sounds_path.absolute()} does not exist")
 
-        static_path = Path(settings.static_ui_folder)
+        static_path = Path(settings.static_folder)
         if static_path.exists():
             web.mount(
                 "/",
@@ -44,6 +50,6 @@ def get_web():
                 name="static",
             )
         else:
-            logger.warn(f"Static files path {static_path.absolute()} does not exist")
+            logger.warn(f"Static folder {static_path.absolute()} does not exist")
 
     return web
