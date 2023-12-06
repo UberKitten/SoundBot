@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     state_file: str = "mount/state.json"
     db_file: str = "mount/db.json"
 
-    static_folder: str = "web/static"
+    static_folder: str = "web/dist"
     templates_folder: str = "web/template"
 
     sounds_folder: str = "mount/sounds"

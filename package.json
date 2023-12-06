@@ -5,8 +5,8 @@
   "type": "module",
   "files": [],
   "scripts": {
-    "build": "cd app/web && gulp",
-    "dev": "cd app/web && gulp watch"
+    "build": "cd web && gulp",
+    "dev": "cd web && gulp watch"
   },
   "devDependencies": {
     "del": "^7.0.0",
