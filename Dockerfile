@@ -2,7 +2,7 @@ FROM python:latest
 WORKDIR /app/
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-RUN apt-get update && apt-get install -y libffi-dev libnacl-dev python3-dev nodejs
+RUN apt-get update && apt-get install -y libffi-dev libnacl-dev python3-dev nodejs ffmpeg
 
 COPY ./requirements.txt /app/
 RUN pip install -r requirements.txt
