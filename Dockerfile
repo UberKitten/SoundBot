@@ -41,4 +41,4 @@ COPY --from=python-builder /app/dist .
 
 RUN ./.venv/bin/pip install *.whl
 
-CMD ./.venv/bin/python -m app
+CMD ./.venv/bin/python -m soundbot
