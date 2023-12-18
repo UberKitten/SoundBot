@@ -6,7 +6,7 @@ if __name__ == "__main__":
     logging.basicConfig(encoding="utf-8", level=logging.DEBUG)
 
     # Import app first which creates most loggers
-    from app.app import run
+    from soundbot.app import run
 
     # Silence other loggers
     for name, logger in logging.Logger.manager.loggerDict.items():

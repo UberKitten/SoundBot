@@ -5,13 +5,13 @@ from datetime import datetime
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
 
-from app.core.settings import settings
-from app.core.state import state
-from app.discord.client import soundbot_client
-from app.models.sounds import Sound, Stats
-from app.web.logger import HypercornLogger
-from app.web.routes.db import old_db
-from app.web.web import get_web
+from soundbot.core.settings import settings
+from soundbot.core.state import state
+from soundbot.discord.client import soundbot_client
+from soundbot.models.sounds import Sound, Stats
+from soundbot.web.logger import HypercornLogger
+from soundbot.web.routes.db import old_db
+from soundbot.web.web import get_web
 
 logger = logging.getLogger(__name__)
 

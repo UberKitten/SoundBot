@@ -4,8 +4,8 @@ from typing import Dict
 import orjson
 from pydantic import BaseModel
 
-from app.core.settings import settings
-from app.models.sounds import Sound
+from soundbot.core.settings import settings
+from soundbot.models.sounds import Sound
 
 
 class State(BaseModel):

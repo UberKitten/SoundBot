@@ -6,7 +6,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Request
 from starlette.templating import Jinja2Templates
 
-from app.core.settings import settings
+from soundbot.core.settings import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

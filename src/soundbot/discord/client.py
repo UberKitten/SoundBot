@@ -4,7 +4,7 @@ from typing import List
 import discord
 from discord import Interaction, app_commands
 
-from app.core.settings import settings
+from soundbot.core.settings import settings
 
 
 class SoundBotClient(discord.Client):

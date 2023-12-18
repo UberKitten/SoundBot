@@ -9,6 +9,7 @@ COPY ./web ./
 RUN npm run build
 # Outputs files in web/dist/
 
+# Used by both builder and soundbot
 FROM python:3.12 as python-base
 
 ENV PYTHONFAULTHANDLER=1 \
@@ -28,10 +29,12 @@ ENV PIP_DEFAULT_TIMEOUT=100 \
 RUN pip install "poetry==$POETRY_VERSION"
 
 COPY pyproject.toml poetry.lock ./
+COPY ./src ./
 RUN poetry config virtualenvs.in-project true && \
-    poetry install --only=main --no-root
+    poetry install --only=main --no-root && \
+    poetry build
 
-FROM python-base as final
+FROM python-base as soundbot
 
 COPY --from=python-builder /app/.venv ./.venv
 COPY --from=python-builder /app/dist .

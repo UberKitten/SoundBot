@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "app"
+name = "soundbot"
 version = "0.1.0"
 description = ""
 authors = ["UberKitten <566438+UberKitten@users.noreply.github.com>"]

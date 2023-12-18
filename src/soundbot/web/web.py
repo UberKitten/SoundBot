@@ -6,8 +6,8 @@ from fastapi.responses import ORJSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
-from app.core.settings import settings
-from app.web.routes.router import router
+from soundbot.core.settings import settings
+from soundbot.web.routes.router import router
 
 logger = logging.getLogger(__name__)
 

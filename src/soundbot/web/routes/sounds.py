@@ -4,9 +4,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Response
 from ffmpeg import FFmpeg
 
-from app.core.settings import settings
-from app.core.state import state
-from app.web.dependencies import no_cache
+from soundbot.core.settings import settings
+from soundbot.core.state import state
+from soundbot.web.dependencies import no_cache
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

@@ -5,9 +5,9 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends
 
-from app.core.settings import settings
-from app.web.dependencies import no_cache
-from app.web.models import OldDB, OldSound
+from soundbot.core.settings import settings
+from soundbot.web.dependencies import no_cache
+from soundbot.web.models import OldDB, OldSound
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
