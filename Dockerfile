@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-COPY ./web ./
+COPY ./web ./web
 RUN npm run build
 # Outputs files in web/dist/
 
@@ -35,6 +35,9 @@ RUN poetry config virtualenvs.in-project true && \
     poetry build
 
 FROM python-base as soundbot
+
+COPY --from=node-builder /app/web/dist ./web/dist
+COPY --from=node-builder /app/web/template ./web/template
 
 COPY --from=python-builder /app/.venv ./.venv
 COPY --from=python-builder /app/dist .
