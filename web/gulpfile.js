@@ -3,7 +3,7 @@ import gulp from "gulp";
 import rev from "gulp-rev";
 import path from "node:path";
 import ts from "gulp-typescript";
-import tsconfig from "./tsconfig.json" assert { type: "json" };
+import tsconfig from "./tsconfig.json" with { type: "json" };
 const { src, dest, series, parallel } = gulp;
 
 const sourcePath = "./";
