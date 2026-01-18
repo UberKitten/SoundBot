@@ -1,6 +1,7 @@
 """Service for downloading media with yt-dlp."""
 
 import asyncio
+from contextlib import contextmanager
 import json
 import logging
 import sys
@@ -19,6 +20,24 @@ _ytdlp_command: list[str] | None = None
 _ytdlp_env: dict[str, str] | None = None
 
 
+@contextmanager
+def _skip_debugger_subprocess_patch():
+    """Context manager to skip debugpy's subprocess argument patching.
+    
+    When running under VS Code's Python debugger (debugpy), it patches
+    subprocess calls to inject debugging into child Python processes.
+    This breaks yt-dlp because the patched command doesn't work correctly.
+    """
+    try:
+        # Try to import pydevd's skip_subprocess_arg_patch
+        from pydevd import skip_subprocess_arg_patch  # type: ignore[import-not-found]
+        with skip_subprocess_arg_patch():
+            yield
+    except ImportError:
+        # Not running under debugger, nothing to skip
+        yield
+
+
 def _get_ytdlp_command() -> list[str]:
     """Get the command prefix to run yt-dlp.
 
@@ -33,7 +52,7 @@ def _get_ytdlp_command() -> list[str]:
     # This file is in src/soundbot/services/ytdlp.py
     # The venv is at .venv/Scripts/python.exe (Windows) or .venv/bin/python (Unix)
     this_file = Path(__file__).resolve()
-    project_root = this_file.parent.parent.parent.parent  # Go up 4 levels
+    project_root = this_file.parent.parent.parent.parent  # Go up to src/, then project root
 
     import os
 
@@ -43,7 +62,7 @@ def _get_ytdlp_command() -> list[str]:
         venv_python = project_root / ".venv" / "bin" / "python"
 
     if venv_python.exists():
-        logger.info(f"Using venv Python: {venv_python}")
+        logger.debug(f"Using venv Python: {venv_python}")
         _ytdlp_command = [str(venv_python), "-m", "yt_dlp"]
     else:
         # Fall back to sys.executable if venv not found (e.g., in Docker)
@@ -73,15 +92,26 @@ def _get_clean_env() -> dict[str, str]:
     # These are commonly set by debuggers and can break module imports
     vars_to_remove = [
         "PYTHONPATH",  # Can cause wrong modules to be found
+        "PYTHONHOME",  # Can also break module resolution
+        "PYTHONSTARTUP",  # VS Code sets this for REPL
         "PYDEVD_USE_FRAME_EVAL",  # debugpy
         "PYDEVD_LOAD_VALUES_ASYNC",  # debugpy
+        "PYDEVD_DISABLE_FILE_VALIDATION",  # debugpy
         "DEBUGPY_PROCESS_SPAWN_TIMEOUT",  # debugpy
+        "BUNDLED_DEBUGPY_PATH",  # VS Code debugpy
+        "VSCODE_DEBUGPY_ADAPTER_ENDPOINTS",  # VS Code debugpy
     ]
+    
+    removed = []
     for var in vars_to_remove:
-        env.pop(var, None)
+        if var in env:
+            removed.append(var)
+            del env[var]
+
+    if removed:
+        logger.debug(f"Removed debugger environment variables: {removed}")
 
     _ytdlp_env = env
-    logger.debug(f"Created clean environment (removed: {vars_to_remove})")
     return _ytdlp_env.copy()
 
 
@@ -131,25 +161,29 @@ class YtdlpService:
             try:
                 logger.info("Updating yt-dlp...")
                 cmd = _get_ytdlp_command() + ["--update"]
-                logger.debug(f"Running command: {' '.join(cmd)}")
-                proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=_get_clean_env(),
-                )
-                stdout, stderr = await proc.communicate()
+                logger.debug(f"Running: {' '.join(cmd)}")
+                with _skip_debugger_subprocess_patch():
+                    proc = await asyncio.create_subprocess_exec(
+                        *cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        env=_get_clean_env(),
+                    )
+                    stdout, stderr = await proc.communicate()
 
                 output = stdout.decode().strip()
+                stderr_text = stderr.decode().strip() if stderr else ""
+                
+                if stderr_text:
+                    logger.warning(f"yt-dlp update stderr: {stderr_text}")
+                
                 if proc.returncode == 0:
                     self._last_update = datetime.now()
-                    logger.info(f"yt-dlp update: {output}")
+                    logger.debug(f"yt-dlp update: {output}")
                     return True, output
                 else:
-                    error = stderr.decode().strip() or "Unknown error"
-                    logger.error(f"Failed to update yt-dlp: {error}")
-                    if stderr:
-                        logger.error(f"yt-dlp update stderr: {stderr.decode()}")
+                    error = stderr_text or "Unknown error"
+                    logger.error(f"Failed to update yt-dlp (code {proc.returncode}): {error}")
                     return False, error
             except Exception as e:
                 logger.error(f"Error updating yt-dlp: {e}")
@@ -205,16 +239,17 @@ class YtdlpService:
         try:
             start_time = time.monotonic()
             logger.info(f"Downloading {url} to {output_dir}")
-            logger.debug(f"Running command: {' '.join(args)}")
+            logger.debug(f"Running: {' '.join(args)}")
 
-            proc = await asyncio.create_subprocess_exec(
-                *args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=output_dir,
-                env=_get_clean_env(),
-            )
-            stdout, stderr = await proc.communicate()
+            with _skip_debugger_subprocess_patch():
+                proc = await asyncio.create_subprocess_exec(
+                    *args,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=output_dir,
+                    env=_get_clean_env(),
+                )
+                stdout, stderr = await proc.communicate()
 
             download_time = time.monotonic() - start_time
             timings.append(StepTiming(step="Download", duration_seconds=download_time))
@@ -391,13 +426,14 @@ class YtdlpService:
         try:
             cmd = _get_ytdlp_command() + [url, "--dump-json", "--no-download"]
             logger.debug(f"Getting video info, command: {' '.join(cmd)}")
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=_get_clean_env(),
-            )
-            stdout, stderr = await proc.communicate()
+            with _skip_debugger_subprocess_patch():
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=_get_clean_env(),
+                )
+                stdout, stderr = await proc.communicate()
 
             if proc.returncode == 0:
                 return json.loads(stdout.decode())

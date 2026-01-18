@@ -23,5 +23,5 @@ unix = ["uvloop>=0.21.0"]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.hatch.build.targets.wheel]
+[tool.hatch.build]
 packages = ["src/soundbot"]
