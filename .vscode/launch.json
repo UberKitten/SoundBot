@@ -5,11 +5,27 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: Run App",
-            "type": "python",
+            "name": "Run (no build)",
+            "type": "debugpy",
             "request": "launch",
-            "module": "app",
+            "module": "soundbot",
             "justMyCode": true
+        },
+        {
+            "name": "Build & Run",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "soundbot",
+            "justMyCode": true,
+            "preLaunchTask": "Update & Build All"
+        },
+        {
+            "name": "Run + Watch Web",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "soundbot",
+            "justMyCode": true,
+            "preLaunchTask": "Update & Watch Web"
         }
     ]
 }

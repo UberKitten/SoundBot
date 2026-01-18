@@ -1,5 +1,5 @@
 import { Sound, isSoundObject } from "audio";
-import { DB_PATH } from "config";
+import { SOUNDS_API_PATH, getRandomPrefix } from "config";
 import { init } from "dom-init";
 import {
   alphaSort,
@@ -60,9 +60,11 @@ export class SoundboardApp extends HTMLElement {
     if (!this.sortOrder) return 0;
 
     if (this.sort === "count") {
-      return numericSort(a.count, b.count, this.sortOrder);
+      return numericSort(a.discord_plays, b.discord_plays, this.sortOrder);
     } else if (this.sort === "date") {
-      return numericSort(a.modified, b.modified, this.sortOrder);
+      const aTime = a.modified ? new Date(a.modified).getTime() : 0;
+      const bTime = b.modified ? new Date(b.modified).getTime() : 0;
+      return numericSort(aTime, bTime, this.sortOrder);
     } else if (this.sort === "alpha") {
       return alphaSort(a.name, b.name, this.sortOrder);
     } else {
@@ -103,21 +105,23 @@ export class SoundboardApp extends HTMLElement {
 
         const renderSliceSize = 50;
         let iButton = 0;
-        const renderSlices: Array<HTMLButtonElement[]> = [];
+        const renderSlices: Array<{slice: HTMLButtonElement[], startIndex: number}>  = [];
 
         while (iButton < buttons.length) {
-          renderSlices.push(buttons.slice(iButton, iButton + renderSliceSize));
+          renderSlices.push({
+            slice: buttons.slice(iButton, iButton + renderSliceSize),
+            startIndex: iButton
+          });
           iButton += renderSliceSize;
         }
 
-        const renderSlice = (slice: HTMLButtonElement[]) => {
-          slice.forEach((sortedButton) => {
+        const renderSlice = (sliceData: {slice: HTMLButtonElement[], startIndex: number}) => {
+          sliceData.slice.forEach((sortedButton, indexInSlice) => {
             if (updatedProp === "sort")
               sortedButton.setAttribute("sort", this.sort ?? "");
 
-            sortedButton.style.animationDelay = `${buttonDelay(
-              buttons.indexOf(sortedButton)
-            )}s`;
+            const absoluteIndex = sliceData.startIndex + indexInSlice;
+            sortedButton.style.animationDelay = `${buttonDelay(absoluteIndex)}s`;
             sortedButton.classList.remove("no-display");
 
             // Calling appendChild with an existing node reorders it, no need to clone!
@@ -202,7 +206,7 @@ export class SoundboardApp extends HTMLElement {
           button.style.animationDelay = `${buttonDelay(
             sounds.indexOf(sound)
           )}s`;
-          button.dataset.copyText = `!${sound.name}`;
+          button.dataset.copyText = `${getRandomPrefix()}${sound.name}`;
 
           this.grid.appendChild(button);
         });
@@ -247,7 +251,7 @@ export class SoundboardApp extends HTMLElement {
 
   async fetchSounds() {
     return await fetchJson({
-      url: DB_PATH,
+      url: SOUNDS_API_PATH,
       parser: (json) =>
         json &&
         typeof json === "object" &&

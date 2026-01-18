@@ -1,5 +1,5 @@
 # Build static assets for UI
-FROM node:21 as node-builder
+FROM node:24 as node-builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -10,7 +10,7 @@ COPY ./web ./web
 RUN npm run build
 
 # Used by both builder and soundbot
-FROM python:3.12 as python-base
+FROM python:3.14 as python-base
 WORKDIR /app
 
 # https://docs.python.org/3/using/cmdline.html
@@ -23,22 +23,16 @@ RUN apt-get update && apt-get install -y libffi-dev libnacl-dev ffmpeg
 # Creates the virtual environment and wheel for soundbot
 FROM python-base as python-builder
 
-# https://pip.pypa.io/en/stable/cli/pip/
-ENV PIP_DEFAULT_TIMEOUT=100 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1 \
-    POETRY_VERSION=1.7.1
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Set up poetry pinned to a specific build to keep builds reproducible
-RUN pip install "poetry==$POETRY_VERSION"
-
-COPY pyproject.toml poetry.lock ./
-COPY ./src ./
+COPY pyproject.toml ./
+COPY ./src ./src
 
 # Build Python wheel in /app/dist/ and virtual environment in /app/.venv/
-RUN poetry config virtualenvs.in-project true && \
-    poetry install --only=main --no-root && \
-    poetry build
+RUN uv venv .venv && \
+    uv pip install --python .venv/bin/python -e ".[unix]" && \
+    uv build
 
 # Final image
 FROM python-base as soundbot
@@ -51,7 +45,11 @@ COPY --from=node-builder /app/web/template ./web/template
 COPY --from=python-builder /app/.venv ./.venv
 COPY --from=python-builder /app/dist .
 
-# Installs the wheel built previously
-RUN ./.venv/bin/pip install *.whl
+# Install uv and the wheel built previously
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+RUN uv pip install --python .venv/bin/python *.whl
+
+# Update yt-dlp to latest version at build time
+RUN ./.venv/bin/yt-dlp --update || true
 
 CMD ./.venv/bin/python -m soundbot

@@ -35,7 +35,13 @@ export class SoundboardButton extends HTMLElement {
     }
 
     if (!this.displayDate) {
-      this.displayDate = getDisplayDate(this.sound.modified);
+      // Convert ISO string to Date for display
+      const modifiedDate = this.sound.modified ? new Date(this.sound.modified) : new Date();
+      this.displayDate = modifiedDate.toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
     }
 
     this.updateLabel();
@@ -94,9 +100,9 @@ export class SoundboardButton extends HTMLElement {
       [
         "count",
         `${
-          this.sound.count === 1
+          this.sound.discord_plays === 1
             ? "1 Play"
-            : this.sound.count.toString().concat(" Plays")
+            : this.sound.discord_plays.toString().concat(" Plays")
         }`,
       ],
       ["date", this.displayDate],

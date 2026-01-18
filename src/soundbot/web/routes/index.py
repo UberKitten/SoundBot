@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 templates = Jinja2Templates(directory=settings.templates_folder)
-asset_re = re.compile(r".*(/scripts/|/styles/)(.+/)?(.+)-.+(\..+)$")
+asset_re = re.compile(r".*[/\\](scripts|styles)[/\\](.+[/\\])?(.+)-.+(\..+)$")
 
 
 @router.get("/")
@@ -35,6 +35,10 @@ async def index(request: Request):
             file_name = js_file.name
 
             js_importmap["imports"][asset_name] = folder_name + file_name
+        else:
+            logger.warning(f"JS file didn't match pattern: {js_file}")
+
+    logger.debug(f"Generated import map: {js_importmap}")
 
     if len(css_files) >= 1:
         css_matches = asset_re.match(str(css_files[0].absolute()))

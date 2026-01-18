@@ -23,10 +23,18 @@ setVolume(localStorage.getItem("volume"));
 
 export interface Sound {
   name: string;
-  filename: string;
-  modified: number;
-  count: number;
-  tags: Array<string>;
+  audio_path: string | null;
+  source_url: string | null;
+  source_title: string | null;
+  source_duration: number | null;
+  trim_start: number | null;
+  trim_end: number | null;
+  volume: number;
+  created: string | null;
+  modified: string | null;
+  discord_plays: number;
+  twitch_plays: number;
+  is_legacy: boolean;
 }
 
 export interface AudioGroup {
@@ -63,30 +71,29 @@ export function isSoundObject(maybeSound: unknown) {
 
   const maybeSoundObj = maybeSound as {
     name: unknown;
-    filename: unknown;
-    modified: unknown;
-    count: unknown;
-    tags: unknown;
+    audio_path: unknown;
+    discord_plays: unknown;
   };
 
   if (typeof maybeSoundObj.name !== "string") return false;
-  if (typeof maybeSoundObj.filename !== "string") return false;
-  if (typeof maybeSoundObj.modified !== "number") return false;
-  if (typeof maybeSoundObj.count !== "number") return false;
-  if (!Array.isArray(maybeSoundObj.tags)) return false;
-  if (maybeSoundObj.tags.find((tag) => typeof tag !== "string")) return false;
+  // audio_path can be null or string
+  if (maybeSoundObj.audio_path !== null && typeof maybeSoundObj.audio_path !== "string") return false;
+  if (typeof maybeSoundObj.discord_plays !== "number") return false;
 
   return true;
 }
 
 export function getSoundPath(sound: undefined): undefined;
-export function getSoundPath(sound: Sound): string;
+export function getSoundPath(sound: Sound): string | undefined;
 export function getSoundPath(sound?: Sound): string | undefined;
 export function getSoundPath(sound?: Sound): string | undefined {
-  if (!sound) return;
+  if (!sound || !sound.audio_path) return;
 
-  const soundUrl = new URL(`${SOUNDS_PATH}/${sound.filename}`, location.origin);
-  soundUrl.searchParams.append("v", sound.modified.toString());
+  const soundUrl = new URL(`${SOUNDS_PATH}/${sound.audio_path}`, location.origin);
+  // Use modified date as cache buster if available
+  if (sound.modified) {
+    soundUrl.searchParams.append("v", new Date(sound.modified).getTime().toString());
+  }
   return soundUrl.href;
 }
 
@@ -130,7 +137,9 @@ export function detachChangeListeners(
 export function playButtonAudio(sound: Sound, updateCb: (e: Event) => unknown) {
   const audioGroups = buttonAudio.get(sound);
   const element = document.createElement("audio");
-  element.src = getSoundPath(sound);
+  const soundPath = getSoundPath(sound);
+  if (!soundPath) return;
+  element.src = soundPath;
   const audioCtx = new AudioContext();
   const source = audioCtx.createMediaElementSource(element);
   const gain = audioCtx.createGain();
@@ -168,7 +177,9 @@ export function playMainAudio(sound: Sound) {
 
   mainAudioGain.gain.value = volume;
   mainSound = sound;
-  mainAudio.src = getSoundPath(sound);
+  const soundPath = getSoundPath(sound);
+  if (!soundPath) return;
+  mainAudio.src = soundPath;
   mainAudio.play();
 }
 
