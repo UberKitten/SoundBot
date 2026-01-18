@@ -45,7 +45,6 @@ test_guild_ids=123456789,987654321
 
 # Optional: Override default paths
 # state_file=mount/state.json
-# db_file=mount/db.json
 # sounds_folder=mount/sounds
 # static_folder=web/dist
 # templates_folder=web/template
@@ -140,10 +139,32 @@ uv run python -m soundbot
 
 ## Discord Commands
 
+### Slash Commands (Sound Management)
+
 | Command | Description |
 |---------|-------------|
-| `/play <name>` | Play a sound in voice channel |
-| `/add <name> <url>` | Add a sound from a URL |
+| `/add <name> <url>` | Add a new sound from URL (YouTube, etc.) with optional start/end times |
+| `/delete <name>` | Delete a sound |
+| `/rename <old> <new>` | Rename a sound |
+| `/trim <name>` | Set new start/end timestamps |
+| `/adjust <name>` | Adjust timestamps relatively (add/remove seconds) |
+| `/volume <name> <level>` | Set volume (0.1-5.0, 1.0 = normal) |
+| `/info <name>` | Get sound details |
+| `/list [search]` | List all sounds or search |
+
+### Text Commands (Playback)
+
+| Command | Description |
+|---------|-------------|
+| `!soundname` | Play a sound (supports partial matching) |
+| `!stop` | Stop current playback |
+| `!leave` | Leave voice channel |
+| `!sounds [search]` | Quick list of sounds |
+
+The bot automatically joins the best voice channel:
+1. The channel you're currently in
+2. A channel with users who recently used the soundbot
+3. The most populated channel
 
 ## License
 

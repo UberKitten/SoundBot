@@ -30,7 +30,5 @@ class State(BaseModel):
             return State()
 
 
-# Don't actually use what we load from state, for now
-State.load()
-state = State()
-# state = State.load()
+# Load state from state.json
+state = State.load()

@@ -49,4 +49,7 @@ COPY --from=python-builder /app/dist .
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 RUN uv pip install --python .venv/bin/python *.whl
 
+# Update yt-dlp to latest version at build time
+RUN ./.venv/bin/yt-dlp --update || true
+
 CMD ./.venv/bin/python -m soundbot
