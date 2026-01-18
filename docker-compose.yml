@@ -1,7 +1,7 @@
 services:
   soundbot:
     build: .
-    hostname: ${DOCKERHOSTNAME}
+    hostname: ${DOCKER_HOSTNAME}
     ports:
       - ${SOUNDBOT_PORT_8080}:8080
     container_name: soundbot
@@ -11,13 +11,13 @@ services:
       - TZ=${TZ}
     env_file:
       - .env
-    logging:
-      driver: json-file
-      options:
-        max-file: ${DOCKERLOGGING_MAXFILE}
-        max-size: ${DOCKERLOGGING_MAXSIZE}
+    # logging:
+    #   driver: json-file
+    #   options:
+    #     max-file: ${DOCKERLOGGING_MAXFILE}
+    #     max-size: ${DOCKERLOGGING_MAXSIZE}
     restart: always
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ${DOCKERCONFDIR}/discord-soundbot/db/test-db.json:/app/mount/db.json:ro
-      - ${DOCKERCONFDIR}/discord-soundbot/sounds:/app/mount/sounds:ro
+      - ${DOCKER_VOLUME_CONFIG}/discord-soundbot/db.json:/app/mount/db.json:ro
+      - ${DOCKER_VOLUME_CONFIG}/discord-soundbot/sounds:/app/mount/sounds:ro
