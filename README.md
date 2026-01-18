@@ -114,10 +114,22 @@ docker-compose up --build
 uv sync
 npm ci
 
-# Build web assets (with watch mode)
+# Build web assets
 npm run build
 
-# Run the bot
+# Run the bot (serves web UI at http://localhost:8080)
+uv run python -m soundbot
+```
+
+### Watch mode for frontend development
+
+Run these in separate terminals:
+
+```bash
+# Terminal 1: Watch and rebuild CSS/TypeScript on changes
+npm run dev
+
+# Terminal 2: Run the Python backend
 uv run python -m soundbot
 ```
 
