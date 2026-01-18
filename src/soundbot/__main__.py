@@ -1,6 +1,6 @@
+import asyncio
 import logging
-
-import uvloop
+import sys
 
 if __name__ == "__main__":
     logging.basicConfig(encoding="utf-8", level=logging.DEBUG)
@@ -14,4 +14,13 @@ if __name__ == "__main__":
             if hasattr(logger, "setLevel"):
                 logger.setLevel(logging.CRITICAL)
 
-    uvloop.run(run())
+    # Use uvloop on Unix platforms for better performance
+    if sys.platform != "win32":
+        try:
+            import uvloop
+
+            uvloop.run(run())
+        except ImportError:
+            asyncio.run(run())
+    else:
+        asyncio.run(run())
