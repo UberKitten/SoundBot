@@ -36,6 +36,7 @@ class QueueItem:
     added_at: datetime = field(default_factory=datetime.now)
     seek_position: float = 0.0  # Position to seek to in seconds (for resume)
     duration: Optional[float] = None  # Duration in seconds
+    loop: bool = False  # Whether to loop this sound
 
 
 @dataclass
@@ -48,6 +49,7 @@ class GuildPlaybackState:
     is_paused: bool = False
     voice_client: Optional[discord.VoiceClient] = None
     play_task: Optional[asyncio.Task] = None
+    looping_item: Optional[QueueItem] = None  # Item currently being looped
 
 
 class VoiceService:
@@ -193,9 +195,10 @@ class VoiceService:
         if state.voice_client and state.voice_client.is_connected():
             await state.voice_client.disconnect()
         state.voice_client = None
-        # Clear queue on disconnect
+        # Clear queue and loop on disconnect
         state.queue.clear()
         state.current = None
+        state.looping_item = None
 
     async def _play_next(self, guild: discord.Guild):
         """Play the next item in the queue."""
@@ -263,6 +266,18 @@ class VoiceService:
 
             # Clear start time after playback
             state.current_started_at = None
+
+            # If this was a looping item and still set as looping, re-queue it
+            if state.looping_item and item.loop:
+                # Reset seek position for next loop iteration
+                loop_item = QueueItem(
+                    audio_path=item.audio_path,
+                    name=item.name,
+                    user=item.user,
+                    duration=item.duration,
+                    loop=True,
+                )
+                state.queue.appendleft(loop_item)
 
             # Play next if not paused and not stopped
             if not state.is_paused:
@@ -409,10 +424,11 @@ class VoiceService:
         if not state.current and not state.queue:
             return False, "Nothing is playing or queued"
 
-        # Clear queue first
+        # Clear queue and loop first
         queue_count = len(state.queue)
         state.queue.clear()
         state.is_paused = False
+        state.looping_item = None
 
         # Stop current playback
         if state.voice_client and state.voice_client.is_playing():
@@ -437,6 +453,7 @@ class VoiceService:
         if state.voice_client.is_playing():
             state.voice_client.pause()
             state.is_paused = True
+            state.looping_item = None  # Stop looping on pause
             return (
                 True,
                 f"Paused **{state.current.name if state.current else 'playback'}**",
@@ -469,6 +486,63 @@ class VoiceService:
             return True, "Resumed queue playback"
 
         return False, "Nothing to resume"
+
+    async def loop_sound(
+        self,
+        guild: discord.Guild,
+        audio_path: Path,
+        name: str,
+        user: Optional[discord.Member] = None,
+        duration: Optional[float] = None,
+    ) -> tuple[bool, str]:
+        """
+        Start looping a sound. Stops any current playback and loops until stopped.
+
+        Returns (success, message).
+        """
+        if not audio_path.exists():
+            return False, "Audio file not found"
+
+        state = self._get_state(guild.id)
+
+        async with self._locks[guild.id]:
+            # Stop any current playback and clear queue
+            state.queue.clear()
+            if state.voice_client and state.voice_client.is_playing():
+                state.voice_client.stop()
+
+            # Create looping item
+            item = QueueItem(
+                audio_path=audio_path,
+                name=name,
+                user=user,
+                duration=duration,
+                loop=True,
+            )
+            state.looping_item = item
+            state.queue.append(item)
+
+            # Start playback
+            state.play_task = asyncio.create_task(self._play_next(guild))
+
+            duration_str = f" {format_duration(duration)}" if duration else ""
+            return True, f"Looping **{name}**{duration_str}"
+
+    def stop_loop(self, guild_id: int) -> tuple[bool, str]:
+        """Stop looping but continue current playback to finish."""
+        state = self._get_state(guild_id)
+
+        if not state.looping_item:
+            return False, "Nothing is currently looping"
+
+        name = state.looping_item.name
+        state.looping_item = None
+
+        return True, f"Stopped looping **{name}** (will finish current play)"
+
+    def is_looping(self, guild_id: int) -> bool:
+        """Check if a sound is currently looping."""
+        return self._get_state(guild_id).looping_item is not None
 
     def get_queue(self, guild_id: int) -> list[QueueItem]:
         """Get the current queue for a guild."""
