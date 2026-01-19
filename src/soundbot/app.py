@@ -67,7 +67,7 @@ async def run_web():
         config.logger_class = HypercornLogger
 
         logger.info("Starting web server on :8080")
-        await serve(get_web(), config)
+        await serve(get_web(), config) # pyright: ignore[reportArgumentType]
     except Exception as exc:
         logger.error(f"Could not start web server: {str(exc)}")
 

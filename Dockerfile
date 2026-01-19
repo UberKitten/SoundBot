@@ -43,11 +43,11 @@ COPY --from=node-builder /app/web/dist ./web/dist
 COPY --from=node-builder /app/web/template ./web/template
 
 COPY --from=python-builder /app/.venv ./.venv
-COPY --from=python-builder /app/dist .
+COPY --from=python-builder /app/dist ./dist
 
 # Install uv and the wheel built previously
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-RUN uv pip install --python .venv/bin/python *.whl
+RUN uv pip install --python .venv/bin/python ./dist/*.whl
 
 # Update yt-dlp to latest version at build time
 RUN ./.venv/bin/yt-dlp --update || true

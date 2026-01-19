@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -56,13 +56,11 @@ class Sound(BaseModel):
     # Metadata
     created: datetime = Field(default_factory=datetime.now)
     modified: datetime = Field(default_factory=datetime.now)
+    added_by: Optional[str] = None  # Username of who added this sound
 
     # Usage statistics per platform
     discord: Stats = Field(default_factory=Stats)
     twitch: Stats = Field(default_factory=Stats)
-
-    # Store raw yt-dlp metadata for reference
-    ytdlp_metadata: Optional[dict[str, Any]] = None
 
     @property
     def is_legacy(self) -> bool:

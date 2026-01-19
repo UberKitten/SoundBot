@@ -88,9 +88,15 @@ class SoundService:
         end: Optional[float] = None,
         volume: float = 1.0,
         overwrite: bool = False,
+        created: Optional[datetime] = None,
+        added_by: Optional[str] = None,
     ) -> OperationResult:
         """
         Add a new sound from a URL.
+
+        Args:
+            created: Optional creation date to preserve (e.g. when importing legacy sounds).
+            added_by: Username of who added this sound.
 
         Returns OperationResult with timing information.
         """
@@ -124,16 +130,20 @@ class SoundService:
                 if old_sound_dir.exists():
                     shutil.rmtree(old_sound_dir)
 
-            # Preserve play counts from old sound
+            # Preserve play counts, created date, and added_by from old sound
             old_discord_plays = existing_sound.discord.plays
             old_twitch_plays = existing_sound.twitch.plays
+            old_created = existing_sound.created
+            old_added_by = existing_sound.added_by
         else:
             old_discord_plays = 0
             old_twitch_plays = 0
+            old_created = None
+            old_added_by = None
 
         sound_dir = self.get_sound_dir(name)
 
-        # Download the source (includes auto-retry on failure)
+        # Download the source (updates yt-dlp before download)
         download_result = await ytdlp_service.download(url, sound_dir, safe_name)
         for t in download_result.timings:
             timings[t.step] = t.duration_seconds
@@ -193,6 +203,17 @@ class SoundService:
             if video_result.duration_seconds:
                 timings["Video trimming"] = video_result.duration_seconds
 
+        # Determine the creation date to use:
+        # 1. Explicit created parameter (e.g. from legacy import)
+        # 2. Preserved from existing sound being overwritten
+        # 3. Current time (default)
+        final_created = created or old_created or datetime.now()
+
+        # Determine who added this sound:
+        # 1. Explicit added_by parameter
+        # 2. Preserved from existing sound being overwritten
+        final_added_by = added_by or old_added_by
+
         # Create sound entry
         sound = Sound(
             directory=safe_name,
@@ -210,11 +231,12 @@ class SoundService:
             source_duration=download_result.duration,
             timestamps=Timestamps(start=start, end=end),
             volume=volume,
-            ytdlp_metadata=download_result.metadata,
+            created=final_created,
+            added_by=final_added_by,
         )
 
         # Restore play counts if overwriting
-        if overwrite and (old_discord_plays > 0 or old_twitch_plays > 0):
+        if old_discord_plays > 0 or old_twitch_plays > 0:
             sound.discord.plays = old_discord_plays
             sound.twitch.plays = old_twitch_plays
 
@@ -494,6 +516,60 @@ class SoundService:
         trim_end = sound.timestamps.end or duration
 
         return trim_end - trim_start
+
+    async def regenerate_all_audio(
+        self, progress_callback: Optional[callable] = None
+    ) -> tuple[int, int, list[str]]:
+        """
+        Regenerate all audio files for non-legacy sounds.
+
+        Useful when the global audio_file_volume setting has changed.
+
+        Args:
+            progress_callback: Optional callback(current, total, name) for progress updates.
+
+        Returns:
+            Tuple of (success_count, failure_count, list of failed sound names).
+        """
+        sounds_to_process = [
+            (name, sound)
+            for name, sound in state.sounds.items()
+            if not sound.is_legacy and sound.files
+        ]
+
+        total = len(sounds_to_process)
+        success_count = 0
+        failed = []
+
+        for i, (name, sound) in enumerate(sounds_to_process):
+            if progress_callback:
+                progress_callback(i + 1, total, name)
+
+            sound_dir = self.sounds_dir / sound.directory
+            original_file = sound_dir / sound.files.original
+
+            if not original_file.exists():
+                logger.warning(f"Original file not found for '{name}': {original_file}")
+                failed.append(name)
+                continue
+
+            # Re-process audio with current volume settings
+            audio_file = sound_dir / sound.files.trimmed_audio
+            audio_result = await ffmpeg_service.extract_and_normalize_audio(
+                original_file,
+                audio_file,
+                start=sound.timestamps.start,
+                end=sound.timestamps.end,
+                volume=sound.volume,
+            )
+
+            if audio_result.success:
+                success_count += 1
+            else:
+                logger.error(f"Failed to regenerate audio for '{name}': {audio_result.error}")
+                failed.append(name)
+
+        return success_count, len(failed), failed
 
 
 # Singleton instance

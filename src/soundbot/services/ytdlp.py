@@ -197,10 +197,12 @@ class YtdlpService:
     ) -> DownloadResult:
         """Internal download implementation."""
         timings: list[StepTiming] = []
+        # Resolve to absolute path to avoid relative path issues
+        output_dir = output_dir.resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Output template - use sound name as base filename
-        output_template = str(output_dir / f"{sound_name}.%(ext)s")
+        # Output template - just use filename since we set cwd to output_dir
+        output_template = f"{sound_name}.%(ext)s"
         metadata_file = output_dir / "metadata.json"
 
         # Build yt-dlp command
@@ -217,13 +219,13 @@ class YtdlpService:
                 "bestvideo+bestaudio/best/bestaudio",
                 # Write metadata to JSON
                 "--write-info-json",
-                # Write subtitles if available
-                "--write-subs",
-                "--write-auto-subs",
-                "--sub-langs",
-                "en,en-US,en-GB",
-                "--sub-format",
-                "srt/vtt/best",
+                # Subtitles disabled temporarily to avoid rate limits
+                # "--write-subs",
+                # "--write-auto-subs",
+                # "--sub-langs",
+                # "en,en-US,en-GB",
+                # "--sub-format",
+                # "srt/vtt/best",
                 # Embed metadata in file
                 "--embed-metadata",
                 # Don't overwrite existing files
@@ -379,36 +381,28 @@ class YtdlpService:
         url: str,
         output_dir: Path,
         sound_name: str,
-        retry_after_update: bool = True,
     ) -> DownloadResult:
         """
         Download media from URL using yt-dlp.
 
-        If download fails and retry_after_update is True, will update yt-dlp
-        and try again (this often fixes issues with changed site APIs).
+        Updates yt-dlp before downloading to ensure we have the latest
+        extractors (this often fixes issues with changed site APIs).
         """
+        # Update yt-dlp before downloading
+        start_time = time.monotonic()
+        update_success, update_msg = await self.update_ytdlp()
+        update_time = time.monotonic() - start_time
+
+        if not update_success:
+            logger.warning(f"yt-dlp update failed: {update_msg}")
+
         result = await self._do_download(url, output_dir, sound_name)
 
-        if not result.success and retry_after_update:
-            logger.info("Download failed, updating yt-dlp and retrying...")
-
-            # Update yt-dlp
-            start_time = time.monotonic()
-            update_success, update_msg = await self.update_ytdlp()
-            update_time = time.monotonic() - start_time
-
-            if update_success:
-                # Retry download
-                result = await self._do_download(url, output_dir, sound_name)
-                # Add update timing to the beginning
-                result.timings.insert(
-                    0, StepTiming(step="yt-dlp update", duration_seconds=update_time)
-                )
-            else:
-                # Update failed, return original error with note
-                result.error = (
-                    f"{result.error} (yt-dlp update also failed: {update_msg})"
-                )
+        # Add update timing to the beginning if we attempted update
+        if update_time > 0:
+            result.timings.insert(
+                0, StepTiming(step="yt-dlp update", duration_seconds=update_time)
+            )
 
         return result
 
@@ -419,7 +413,7 @@ class YtdlpService:
         Returns the result with the temp file path.
         """
         temp_dir = Path(tempfile.mkdtemp(prefix="soundbot_"))
-        return await self.download(url, temp_dir, "quickplay", retry_after_update=True)
+        return await self.download(url, temp_dir, "quickplay")
 
     async def get_video_info(self, url: str) -> Optional[dict[str, Any]]:
         """Get video info without downloading."""

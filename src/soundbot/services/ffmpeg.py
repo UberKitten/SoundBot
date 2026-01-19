@@ -9,6 +9,8 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from soundbot.core.settings import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -100,6 +102,8 @@ class FFmpegService:
 
         Uses loudnorm filter for EBU R128 normalization.
         Output is opus in ogg container for best Discord compatibility.
+
+        The final volume is: per-sound volume * global audio_file_volume setting.
         """
         args = ["ffmpeg", "-y"]
 
@@ -117,9 +121,10 @@ class FFmpegService:
         # Audio filters
         filters = []
 
-        # Volume adjustment (before normalization if boosting, after if reducing)
-        if volume != 1.0:
-            filters.append(f"volume={volume}")
+        # Combined volume: per-sound volume * global audio_file_volume setting
+        effective_volume = volume * settings.audio_file_volume
+        if effective_volume != 1.0:
+            filters.append(f"volume={effective_volume}")
 
         # EBU R128 loudness normalization
         # Target: -16 LUFS (good for Discord), with true peak at -1.5 dBTP
