@@ -28,7 +28,7 @@ class SoundResponse(BaseModel):
 
 
 class SoundsResponse(BaseModel):
-    """Response for /api/v2/sounds endpoint."""
+    """Response for /api/sounds endpoint."""
 
     sounds: List[SoundResponse]
     total: int

@@ -13,9 +13,9 @@ router = APIRouter()
 
 
 @router.get(
-    "/api/v2/sounds", dependencies=[Depends(no_cache)], response_model=SoundsResponse
+    "/api/sounds", dependencies=[Depends(no_cache)], response_model=SoundsResponse
 )
-async def get_sounds_v2():
+async def get_sounds():
     """Get all sounds with full metadata."""
     sounds: list[SoundResponse] = []
 
@@ -40,12 +40,6 @@ async def get_sounds_v2():
         )
 
     return SoundsResponse(sounds=sounds, total=len(sounds))
-
-
-@router.get("/api/sounds", dependencies=[Depends(no_cache)])
-async def get_sounds():
-    """Get all sounds (returns raw state)."""
-    return state.sounds
 
 
 @router.get("/api/sounds/{sound_name}", dependencies=[Depends(no_cache)])

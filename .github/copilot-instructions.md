@@ -4,6 +4,13 @@
 
 SoundBot is a Discord soundboard bot with a web interface. Users can browse sounds on a web page and play them in Discord voice channels or copy links to share in chat.
 
+## Security
+
+The web API is **public and unauthenticated**. When adding or modifying API endpoints:
+- **Never** expose sensitive information (tokens, internal state, user data)
+- **Never** allow API methods to modify data (all mutations should go through Discord commands)
+- API endpoints should be read-only and return only public sound metadata
+
 ## Tech Stack
 
 ### Backend (Python)
