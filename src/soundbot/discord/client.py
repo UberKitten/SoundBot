@@ -91,6 +91,12 @@ class SoundBot(commands.Bot):
             await self.tree.sync()
             logger.info("Synced commands globally")
 
+    async def close(self):
+        """Called when the bot is shutting down."""
+        logger.info("Bot shutting down, disconnecting from all voice channels...")
+        await voice_service.disconnect_all()
+        await super().close()
+
 
 class SoundCommands(commands.Cog):
     """Slash commands for sound management (CRUD)."""
@@ -1166,6 +1172,23 @@ class VoiceEventsCog(commands.Cog):
         """Mark that we just played an entrance/exit sound for this user."""
         self._recent_plays[user_id] = datetime.now()
 
+    async def _check_empty_channel(self, channel: discord.VoiceChannel) -> None:
+        """Check if the bot should leave a voice channel due to no human members."""
+        # Get the bot's voice client for this guild
+        guild = channel.guild
+        voice_client = guild.voice_client
+
+        if not voice_client or voice_client.channel != channel:
+            return
+
+        # Check if there are any non-bot members in the channel
+        human_members = [m for m in channel.members if not m.bot]
+        if not human_members:
+            logger.info(
+                f"All users left voice channel {channel.name} in {guild.name}, disconnecting"
+            )
+            await voice_service.disconnect(guild.id)
+
     @commands.Cog.listener()
     async def on_voice_state_update(
         self,
@@ -1174,7 +1197,12 @@ class VoiceEventsCog(commands.Cog):
         after: discord.VoiceState,
     ):
         """Play entrance/exit sounds when users join/leave voice."""
-        # Ignore bots
+        # Check if someone left a channel where the bot is - leave if no humans remain
+        if before.channel and before.channel != after.channel:
+            if isinstance(before.channel, discord.VoiceChannel):
+                await self._check_empty_channel(before.channel)
+
+        # Ignore bots for entrance/exit sounds
         if member.bot:
             return
 

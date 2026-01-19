@@ -481,6 +481,15 @@ class VoiceService:
         """Check if playback is paused."""
         return self._get_state(guild_id).is_paused
 
+    async def disconnect_all(self):
+        """Disconnect from all voice channels in all guilds."""
+        for guild_id in list(self._states.keys()):
+            try:
+                await self.disconnect(guild_id)
+                logger.info(f"Disconnected from guild {guild_id}")
+            except Exception as e:
+                logger.error(f"Error disconnecting from guild {guild_id}: {e}")
+
 
 # Singleton instance
 voice_service = VoiceService()
