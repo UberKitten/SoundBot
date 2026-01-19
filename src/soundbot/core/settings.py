@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     # Target loudness for audio normalization (EBU R128)
     # Lower values are quieter
     # When changing, run: uv run python -m soundbot.cli regenerate-audio
-    audio_target_lufs: float = -30.0
+    audio_target_lufs: float = -20.0
 
 
 settings = Settings()
