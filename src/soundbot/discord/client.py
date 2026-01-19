@@ -922,6 +922,44 @@ class PlaybackCog(commands.Cog):
         else:
             await ctx.send(f"❌ {message}")
 
+    def _parse_sound_commands(self, content: str) -> list[str]:
+        """Parse multiple sound commands from a message.
+
+        Supports messages like "!sound1 !sound2 !sound3" returning ["sound1", "sound2", "sound3"].
+        Also supports single commands like "!sound1" returning ["sound1"].
+        """
+        import re
+
+        # Build regex pattern to split on any prefix
+        # Escape special regex characters in prefixes
+        escaped_prefixes = [re.escape(p) for p in self.prefixes]
+        pattern = f"({'|'.join(escaped_prefixes)})"
+
+        # Split by prefixes, keeping delimiters
+        parts = re.split(pattern, content)
+
+        commands = []
+        i = 0
+        while i < len(parts):
+            part = parts[i]
+            # Check if this part is a prefix
+            if part in self.prefixes:
+                # Next part (if exists) is the command
+                if i + 1 < len(parts):
+                    cmd = parts[i + 1].strip().lower()
+                    # Only take the first word (sound name)
+                    if cmd:
+                        cmd_word = cmd.split()[0]
+                        if cmd_word:
+                            commands.append(cmd_word)
+                    i += 2
+                else:
+                    i += 1
+            else:
+                i += 1
+
+        return commands
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """Listen for prefix+soundname commands to play sounds."""
@@ -932,22 +970,18 @@ class PlaybackCog(commands.Cog):
 
         # Check if message starts with any of our prefixes
         content = message.content
-        prefix_used = None
-        for prefix in self.prefixes:
-            if content.startswith(prefix):
-                prefix_used = prefix
-                break
+        has_prefix = any(content.startswith(prefix) for prefix in self.prefixes)
 
-        if not prefix_used:
+        if not has_prefix:
             return
 
-        # Extract sound name (everything after the prefix)
-        sound_name = content[len(prefix_used) :].strip().lower()
+        # Parse all sound commands from the message
+        sound_names = self._parse_sound_commands(content)
 
-        if not sound_name:
+        if not sound_names:
             return
 
-        # Skip if it's a registered command
+        # Skip registered commands (only check first command for backward compatibility)
         registered_commands = [
             "add",
             "stop",
@@ -965,54 +999,91 @@ class PlaybackCog(commands.Cog):
             "now",
             "playnow",
         ]
-        if sound_name.split()[0] in registered_commands:
+        if sound_names[0] in registered_commands:
             return
 
-        # Try to find and play the sound
-        audio_path = sound_service.get_audio_path(sound_name)
-        if not audio_path:
-            # Try partial match
-            matches = sound_service.search_sounds(sound_name)
-            if len(matches) == 1:
-                audio_path = sound_service.get_audio_path(matches[0][0])
-                sound_name = matches[0][0]
-            elif len(matches) > 1:
-                names = [n for n, _ in matches[:5]]
-                await message.channel.send(
-                    f"Multiple matches: {', '.join(names)}"
-                    + (" ..." if len(matches) > 5 else "")
-                )
-                return
-            else:
-                # Not found, silently ignore (could be a command for another bot)
-                return
+        # Filter out registered commands from the list
+        sound_names = [s for s in sound_names if s not in registered_commands]
+
+        if not sound_names:
+            return
 
         # Get the member object
         member = message.guild.get_member(message.author.id)
 
-        # Get duration for display
-        duration = sound_service.get_sound_duration(sound_name)
+        # Track results for response
+        played_sounds = []
+        errors = []
 
-        # Play the sound
-        success, result = await voice_service.play_sound(
-            message.guild,
-            audio_path,
-            name=sound_name,
-            user=member,
-            duration=duration,
-        )
+        for sound_name in sound_names:
+            # Try to find the sound
+            audio_path = sound_service.get_audio_path(sound_name)
+            resolved_name = sound_name
 
-        if success:
-            # Update play count in state
-            sound = sound_service.get_sound(sound_name)
-            if sound:
-                sound.discord.plays += 1
-                sound.discord.last_played = datetime.now()
-                state.save()
+            if not audio_path:
+                # Try partial match
+                matches = sound_service.search_sounds(sound_name)
+                if len(matches) == 1:
+                    audio_path = sound_service.get_audio_path(matches[0][0])
+                    resolved_name = matches[0][0]
+                elif len(matches) > 1:
+                    names = [n for n, _ in matches[:5]]
+                    errors.append(
+                        f"'{sound_name}': multiple matches ({', '.join(names)})"
+                    )
+                    continue
+                else:
+                    # Not found, silently ignore (could be a command for another bot)
+                    continue
 
-            await message.channel.send(f"🔊 {result}")
-        else:
-            await message.channel.send(f"❌ {result}")
+            # Get duration for display
+            duration = sound_service.get_sound_duration(resolved_name)
+
+            # For the first sound, use play_sound (plays immediately or queues)
+            # For subsequent sounds, use queue_sound to add to queue
+            if not played_sounds:
+                success, result = await voice_service.play_sound(
+                    message.guild,
+                    audio_path,
+                    name=resolved_name,
+                    user=member,
+                    duration=duration,
+                )
+            else:
+                success, result = await voice_service.queue_sound(
+                    message.guild,
+                    audio_path,
+                    resolved_name,
+                    user=member,
+                    duration=duration,
+                )
+
+            if success:
+                # Update play count in state
+                sound = sound_service.get_sound(resolved_name)
+                if sound:
+                    sound.discord.plays += 1
+                    sound.discord.last_played = datetime.now()
+
+                played_sounds.append(resolved_name)
+            else:
+                errors.append(f"'{resolved_name}': {result}")
+
+        # Save state if we played any sounds
+        if played_sounds:
+            state.save()
+
+        # Send response
+        if played_sounds:
+            if len(played_sounds) == 1:
+                await message.channel.send(f"🔊 Playing **{played_sounds[0]}**")
+            else:
+                await message.channel.send(
+                    f"🔊 Queued {len(played_sounds)} sounds: {', '.join(played_sounds)}"
+                )
+
+        if errors:
+            await message.channel.send(f"❌ Errors: {'; '.join(errors)}")
 
 
 class UserSettingsCog(commands.Cog):

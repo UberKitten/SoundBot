@@ -300,8 +300,13 @@ class VoiceService:
             else:
                 state.queue.append(item)
 
-            # If nothing is playing, start playing
-            if state.current is None and not state.is_paused:
+            # Check if a play task is already running or about to run
+            play_task_active = (
+                state.play_task is not None and not state.play_task.done()
+            )
+
+            # If nothing is playing and no play task is active, start playing
+            if state.current is None and not state.is_paused and not play_task_active:
                 # Start playback in a task so we don't block
                 state.play_task = asyncio.create_task(self._play_next(guild))
                 duration_str = f" {format_duration(duration)}" if duration else ""
@@ -371,8 +376,11 @@ class VoiceService:
         item = QueueItem(audio_path=audio_path, name=name, user=user, duration=duration)
         state.queue.appendleft(item)
 
-        # If nothing is playing now, start playback
-        if state.current is None:
+        # Check if a play task is already running or about to run
+        play_task_active = state.play_task is not None and not state.play_task.done()
+
+        # If nothing is playing now and no play task is active, start playback
+        if state.current is None and not play_task_active:
             state.play_task = asyncio.create_task(self._play_next(guild))
 
         duration_str = f" {format_duration(duration)}" if duration else ""
