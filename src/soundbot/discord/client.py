@@ -155,6 +155,19 @@ class SoundCommands(commands.Cog):
         emoji = "✅" if result.success else "❌"
         await interaction.response.send_message(f"{emoji} {result.message}")
 
+    @app_commands.command(name="redownload")
+    @app_commands.describe(name="Name of the sound to re-download")
+    async def redownload_sound(self, interaction: Interaction, name: str):
+        """Re-download a sound from its original source URL."""
+        await interaction.response.defer(thinking=True)
+
+        # Strip any command prefix from the name
+        name = strip_command_prefix(name)
+        result = await sound_service.redownload_sound(name)
+
+        emoji = "✅" if result.success else "❌"
+        await interaction.followup.send(f"{emoji} {result.full_message()}")
+
     @app_commands.command(name="rename")
     @app_commands.describe(
         old_name="Current name of the sound",
@@ -226,28 +239,6 @@ class SoundCommands(commands.Cog):
             adjust_start=start_offset,
             adjust_end=end_offset,
         )
-
-        emoji = "✅" if result.success else "❌"
-        await interaction.followup.send(f"{emoji} {result.full_message()}")
-
-    @app_commands.command(name="volume")
-    @app_commands.describe(
-        name="Name of the sound",
-        level="Volume level (0.1 to 5.0, 1.0 = normal)",
-    )
-    async def set_volume(
-        self,
-        interaction: Interaction,
-        name: str,
-        level: float,
-    ):
-        """Set the volume for a sound."""
-        await interaction.response.defer(thinking=True)
-
-        # Strip any command prefix from the name
-        name = strip_command_prefix(name)
-
-        result = await sound_service.set_volume(name, level)
 
         emoji = "✅" if result.success else "❌"
         await interaction.followup.send(f"{emoji} {result.full_message()}")
@@ -696,6 +687,40 @@ class QueueCog(commands.Cog):
 
         success, message = await voice_service.stop(interaction.guild.id)
         emoji = "⏹️" if success else "❌"
+        await interaction.response.send_message(f"{emoji} {message}")
+
+    @app_commands.command(name="loop")
+    @app_commands.describe(name="Name of the sound to loop")
+    async def loop_sound(self, interaction: Interaction, name: str):
+        """Loop a sound until stopped."""
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "❌ This command must be used in a server"
+            )
+            return
+
+        # Strip any command prefix from the name
+        name = strip_command_prefix(name)
+        audio_path = sound_service.get_audio_path(name)
+        if not audio_path:
+            await interaction.response.send_message(f"❌ Sound '{name}' not found")
+            return
+
+        # Get duration for display
+        duration = sound_service.get_sound_duration(name)
+
+        # Get member for channel detection
+        member = (
+            interaction.guild.get_member(interaction.user.id)
+            if interaction.guild
+            else None
+        )
+
+        success, message = await voice_service.loop_sound(
+            interaction.guild, audio_path, name=name, user=member, duration=duration
+        )
+
+        emoji = "🔁" if success else "❌"
         await interaction.response.send_message(f"{emoji} {message}")
 
     @app_commands.command(name="pause")

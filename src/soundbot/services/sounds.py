@@ -489,64 +489,6 @@ class SoundService:
             timings=timings,
         )
 
-    async def set_volume(self, name: str, volume: float) -> OperationResult:
-        """
-        Set the volume for a sound.
-
-        Volume is a multiplier: 1.0 = normal, 0.5 = half, 2.0 = double.
-        """
-        timings: dict[str, float] = {}
-        name_lower = name.lower()
-        sound = state.sounds.get(name_lower)
-
-        if not sound:
-            return OperationResult(success=False, message=f"Sound '{name}' not found")
-
-        if volume < 0.1 or volume > 5.0:
-            return OperationResult(
-                success=False,
-                message="Volume must be between 0.1 and 5.0",
-            )
-
-        sound_dir = self.sounds_dir / sound.directory
-        original_file = sound_dir / sound.files.original
-
-        if not original_file.exists():
-            return OperationResult(
-                success=False,
-                message="Original file not found. The sound may need to be re-downloaded.",
-            )
-
-        # Re-process audio with new volume
-        safe_name = sanitize_name(name)
-        audio_file = sound_dir / f"{safe_name}.ogg"
-        audio_result = await ffmpeg_service.extract_and_normalize_audio(
-            original_file,
-            audio_file,
-            start=sound.timestamps.start,
-            end=sound.timestamps.end,
-            volume=volume,
-        )
-        if audio_result.duration_seconds:
-            timings["Audio processing"] = audio_result.duration_seconds
-
-        if not audio_result.success:
-            return OperationResult(
-                success=False,
-                message=f"Failed to process audio: {audio_result.error}",
-                timings=timings,
-            )
-
-        sound.volume = volume
-        sound.modified = datetime.now()
-        state.save()
-
-        return OperationResult(
-            success=True,
-            message=f"Set volume for '{name}' to {volume}x",
-            timings=timings,
-        )
-
     async def delete_sound(self, name: str) -> OperationResult:
         """Delete a sound."""
         name_lower = name.lower()
@@ -565,6 +507,132 @@ class SoundService:
         state.save()
 
         return OperationResult(success=True, message=f"Deleted sound '{name}'")
+
+    async def redownload_sound(self, name: str) -> OperationResult:
+        """
+        Re-download a sound from its original source URL.
+
+        Downloads to a temp directory first, only replacing files if successful.
+        Preserves all metadata including timestamps, volume, play counts, etc.
+        """
+        timings: dict[str, float] = {}
+        name_lower = name.lower()
+        safe_name = sanitize_name(name)
+
+        sound = state.sounds.get(name_lower)
+        if not sound:
+            return OperationResult(success=False, message=f"Sound '{name}' not found")
+
+        if not sound.source_url:
+            return OperationResult(
+                success=False,
+                message=f"Sound '{name}' has no source URL (was uploaded directly)",
+            )
+
+        sound_dir = self.sounds_dir / sound.directory
+
+        # Download to a temp directory first
+        import tempfile
+
+        temp_dir = Path(tempfile.mkdtemp(prefix="soundbot_redownload_"))
+
+        try:
+            # Download the source
+            download_result = await ytdlp_service.download(
+                sound.source_url, temp_dir, safe_name
+            )
+            for t in download_result.timings:
+                timings[t.step] = t.duration_seconds
+
+            if not download_result.success:
+                return OperationResult(
+                    success=False,
+                    message=f"Failed to download: {download_result.error}",
+                    timings=timings,
+                )
+
+            # Check what we got
+            probe = await ffmpeg_service.probe(download_result.original_file)
+            if not probe or not probe.has_audio:
+                return OperationResult(
+                    success=False,
+                    message="Downloaded file has no audio",
+                    timings=timings,
+                )
+
+            # Process audio for Discord (using existing timestamps and volume)
+            audio_file = temp_dir / f"{safe_name}.ogg"
+            audio_result = await ffmpeg_service.extract_and_normalize_audio(
+                download_result.original_file,
+                audio_file,
+                start=sound.timestamps.start,
+                end=sound.timestamps.end,
+                volume=sound.volume,
+            )
+            if audio_result.duration_seconds:
+                timings["Audio processing"] = audio_result.duration_seconds
+
+            if not audio_result.success:
+                return OperationResult(
+                    success=False,
+                    message=f"Failed to process audio: {audio_result.error}",
+                    timings=timings,
+                )
+
+            # If source has video, create trimmed video too
+            trimmed_video_file = None
+            if probe.has_video:
+                video_file = temp_dir / f"{safe_name}_trimmed.mkv"
+                video_result = await ffmpeg_service.trim_video(
+                    download_result.original_file,
+                    video_file,
+                    start=sound.timestamps.start,
+                    end=sound.timestamps.end,
+                )
+                if video_result.success:
+                    trimmed_video_file = video_file.name
+                if video_result.duration_seconds:
+                    timings["Video trimming"] = video_result.duration_seconds
+
+            # Success! Now we can safely replace the old files
+            # Remove old files from sound directory
+            if sound_dir.exists():
+                for item in sound_dir.iterdir():
+                    item.unlink()
+            else:
+                sound_dir.mkdir(parents=True)
+
+            # Move new files to sound directory
+            for item in temp_dir.iterdir():
+                shutil.move(str(item), str(sound_dir / item.name))
+
+            # Update sound entry (preserve stats, timestamps, volume, created, added_by)
+            sound.files = SoundFiles(
+                original=download_result.original_file.name,
+                trimmed_video=trimmed_video_file,
+                trimmed_audio=audio_file.name,
+                metadata="metadata.json",
+                subtitles=download_result.subtitles_file.name
+                if download_result.subtitles_file
+                else None,
+            )
+            sound.source_title = download_result.title
+            sound.source_duration = download_result.duration
+            sound.modified = datetime.now()
+
+            state.save()
+
+            title_info = f" ({download_result.title})" if download_result.title else ""
+            return OperationResult(
+                success=True,
+                message=f"Re-downloaded '{name}'{title_info}",
+                timings=timings,
+            )
+
+        finally:
+            # Clean up temp directory
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
 
     async def rename_sound(self, old_name: str, new_name: str) -> OperationResult:
         """Rename a sound."""
