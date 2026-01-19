@@ -12,6 +12,7 @@ from discord.ext import commands
 
 from soundbot.core.settings import settings
 from soundbot.core.state import state
+from soundbot.core.utils import parse_timestamp
 from soundbot.services.ffmpeg import ffmpeg_service
 from soundbot.services.sounds import sound_service
 from soundbot.services.voice import voice_service
@@ -187,15 +188,15 @@ class SoundCommands(commands.Cog):
     @app_commands.command(name="trim")
     @app_commands.describe(
         name="Name of the sound",
-        start="New start time in seconds",
-        end="New end time in seconds",
+        start="New start time (e.g. '90' or '1:30')",
+        end="New end time (e.g. '120' or '2:00')",
     )
     async def trim_sound(
         self,
         interaction: Interaction,
         name: str,
-        start: Optional[float] = None,
-        end: Optional[float] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
     ):
         """Set new start/end times for a sound."""
         await interaction.response.defer(thinking=True)
@@ -203,10 +204,21 @@ class SoundCommands(commands.Cog):
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
 
+        # Parse timestamps (supports both "90" and "1:30" formats)
+        start_seconds = parse_timestamp(start) if start else None
+        end_seconds = parse_timestamp(end) if end else None
+
+        if start is not None and start_seconds is None:
+            await interaction.followup.send(f"❌ Invalid start time format: '{start}'. Use seconds (90) or MM:SS (1:30).")
+            return
+        if end is not None and end_seconds is None:
+            await interaction.followup.send(f"❌ Invalid end time format: '{end}'. Use seconds (90) or MM:SS (1:30).")
+            return
+
         result = await sound_service.edit_timestamps(
             name=name,
-            start=start,
-            end=end,
+            start=start_seconds,
+            end=end_seconds,
         )
 
         emoji = "✅" if result.success else "❌"
