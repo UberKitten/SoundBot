@@ -20,18 +20,13 @@ async def get_sounds_v2():
     sounds: list[SoundResponse] = []
 
     for name, sound in state.sounds.items():
-        # Determine the audio path for the frontend
-        audio_path = None
-        if sound.is_legacy and sound.filename:
-            audio_path = sound.filename
-        elif sound.directory and sound.files:
-            audio_path = f"{sound.directory}/{sound.files.trimmed_audio}"
+        audio_path = f"{sound.directory}/{sound.files.trimmed_audio}"
 
         sounds.append(
             SoundResponse(
                 name=name,
                 audio_path=audio_path,
-                source_url=sound.source_url or sound.source,
+                source_url=sound.source_url,
                 source_title=sound.source_title,
                 source_duration=sound.source_duration,
                 trim_start=sound.timestamps.start,
@@ -41,7 +36,6 @@ async def get_sounds_v2():
                 modified=sound.modified,
                 discord_plays=sound.discord.plays,
                 twitch_plays=sound.twitch.plays,
-                is_legacy=sound.is_legacy,
             )
         )
 
@@ -50,7 +44,7 @@ async def get_sounds_v2():
 
 @router.get("/api/sounds", dependencies=[Depends(no_cache)])
 async def get_sounds():
-    """Get all sounds (legacy format - returns raw state)."""
+    """Get all sounds (returns raw state)."""
     return state.sounds
 
 

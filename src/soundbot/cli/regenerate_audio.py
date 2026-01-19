@@ -1,4 +1,4 @@
-"""Regenerate audio files for all non-legacy sounds.
+"""Regenerate audio files for all sounds.
 
 Use this when changing the audio_target_lufs setting.
 """
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 async def regenerate_audio_files(dry_run: bool = False, sound_name: str | None = None) -> None:
     """
-    Regenerate all trimmed audio files for non-legacy sounds.
+    Regenerate all trimmed audio files.
 
     This re-extracts and normalizes audio from original files using current settings,
     including the audio_target_lufs setting.
@@ -40,20 +40,12 @@ async def regenerate_audio_files(dry_run: bool = False, sound_name: str | None =
 
     total = len(sounds_to_process)
     processed = 0
-    skipped = 0
     failed = 0
 
     print(f"🔊 Target LUFS: {settings.audio_target_lufs}")
     print(f"📁 Processing {total} sounds...\n")
 
     for name, sound in sounds_to_process:
-        # Skip legacy sounds (no directory or files)
-        if sound.is_legacy or not sound.directory or not sound.files:
-            if sound_name:  # Only show skip message for specific sound requests
-                print(f"⏭️  {name}: Legacy sound, cannot regenerate")
-            skipped += 1
-            continue
-
         # Get paths
         sound_dir = sounds_dir / sound.directory
         original_file = sound_dir / sound.files.original
@@ -95,5 +87,4 @@ async def regenerate_audio_files(dry_run: bool = False, sound_name: str | None =
 
     print(f"\n📊 Summary:")
     print(f"   ✅ Processed: {processed}")
-    print(f"   ⏭️  Skipped (legacy): {skipped}")
     print(f"   ❌ Failed: {failed}")

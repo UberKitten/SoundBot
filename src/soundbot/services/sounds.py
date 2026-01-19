@@ -95,7 +95,7 @@ class SoundService:
         Add a new sound from a URL.
 
         Args:
-            created: Optional creation date to preserve (e.g. when importing legacy sounds).
+            created: Optional creation date to preserve (e.g. when overwriting).
             added_by: Username of who added this sound.
 
         Returns OperationResult with timing information.
@@ -113,22 +113,10 @@ class SoundService:
                     message=f"Sound '{name}' already exists. Use /add with overwrite=True to replace it, or /trim to modify timestamps.",
                 )
 
-            # Delete the old sound before adding new one
-            if existing_sound.is_legacy:
-                # Delete legacy files
-                if existing_sound.filename:
-                    file_path = self.sounds_dir / existing_sound.filename
-                    if file_path.exists():
-                        file_path.unlink()
-                if existing_sound.original_filename:
-                    orig_path = self.sounds_dir / existing_sound.original_filename
-                    if orig_path.exists():
-                        orig_path.unlink()
-            elif existing_sound.directory:
-                # Delete new format directory
-                old_sound_dir = self.sounds_dir / existing_sound.directory
-                if old_sound_dir.exists():
-                    shutil.rmtree(old_sound_dir)
+            # Delete the old sound directory
+            old_sound_dir = self.sounds_dir / existing_sound.directory
+            if old_sound_dir.exists():
+                shutil.rmtree(old_sound_dir)
 
             # Preserve play counts, created date, and added_by from old sound
             old_discord_plays = existing_sound.discord.plays
@@ -296,22 +284,10 @@ class SoundService:
                     message=f"Sound '{name}' already exists. Use overwrite=True to replace it.",
                 )
 
-            # Delete the old sound before adding new one
-            if existing_sound.is_legacy:
-                # Delete legacy files
-                if existing_sound.filename:
-                    file_path = self.sounds_dir / existing_sound.filename
-                    if file_path.exists():
-                        file_path.unlink()
-                if existing_sound.original_filename:
-                    orig_path = self.sounds_dir / existing_sound.original_filename
-                    if orig_path.exists():
-                        orig_path.unlink()
-            elif existing_sound.directory:
-                # Delete new format directory
-                old_sound_dir = self.sounds_dir / existing_sound.directory
-                if old_sound_dir.exists():
-                    shutil.rmtree(old_sound_dir)
+            # Delete the old sound directory
+            old_sound_dir = self.sounds_dir / existing_sound.directory
+            if old_sound_dir.exists():
+                shutil.rmtree(old_sound_dir)
 
             # Preserve play counts, created date, and added_by from old sound
             old_discord_plays = existing_sound.discord.plays
@@ -433,13 +409,6 @@ class SoundService:
         if not sound:
             return OperationResult(success=False, message=f"Sound '{name}' not found")
 
-        # Handle legacy sounds
-        if sound.is_legacy:
-            return OperationResult(
-                success=False,
-                message=f"Sound '{name}' is a legacy sound and cannot be edited. Re-add it with /add.",
-            )
-
         sound_dir = self.sounds_dir / sound.directory
         original_file = sound_dir / sound.files.original
 
@@ -539,13 +508,6 @@ class SoundService:
                 message="Volume must be between 0.1 and 5.0",
             )
 
-        # Handle legacy sounds
-        if sound.is_legacy:
-            return OperationResult(
-                success=False,
-                message=f"Sound '{name}' is a legacy sound and cannot be edited. Re-add it with /add to enable editing.",
-            )
-
         sound_dir = self.sounds_dir / sound.directory
         original_file = sound_dir / sound.files.original
 
@@ -593,22 +555,10 @@ class SoundService:
         if not sound:
             return OperationResult(success=False, message=f"Sound '{name}' not found")
 
-        # Delete files based on format
-        if sound.is_legacy:
-            # Legacy: delete the mp3 file directly
-            if sound.filename:
-                file_path = self.sounds_dir / sound.filename
-                if file_path.exists():
-                    file_path.unlink()
-            if sound.original_filename:
-                orig_path = self.sounds_dir / sound.original_filename
-                if orig_path.exists():
-                    orig_path.unlink()
-        else:
-            # New format: delete the directory
-            sound_dir = self.sounds_dir / sound.directory
-            if sound_dir.exists():
-                shutil.rmtree(sound_dir)
+        # Delete the sound directory
+        sound_dir = self.sounds_dir / sound.directory
+        if sound_dir.exists():
+            shutil.rmtree(sound_dir)
 
         # Remove from state
         del state.sounds[name_lower]
@@ -651,16 +601,7 @@ class SoundService:
         if not sound:
             return None
 
-        # Handle legacy sounds
-        if sound.is_legacy:
-            if sound.filename:
-                return self.sounds_dir / sound.filename
-            return None
-
-        # New format
-        if sound.directory and sound.files:
-            return self.sounds_dir / sound.directory / sound.files.trimmed_audio
-        return None
+        return self.sounds_dir / sound.directory / sound.files.trimmed_audio
 
     def get_sound_duration(self, name: str) -> Optional[float]:
         """Get the duration of a sound in seconds (accounting for trim)."""
@@ -683,9 +624,9 @@ class SoundService:
         self, progress_callback: Optional[callable] = None
     ) -> tuple[int, int, list[str]]:
         """
-        Regenerate all audio files for non-legacy sounds.
+        Regenerate all audio files.
 
-        Useful when the global audio_file_volume setting has changed.
+        Useful when the global audio_target_lufs setting has changed.
 
         Args:
             progress_callback: Optional callback(current, total, name) for progress updates.
@@ -693,11 +634,7 @@ class SoundService:
         Returns:
             Tuple of (success_count, failure_count, list of failed sound names).
         """
-        sounds_to_process = [
-            (name, sound)
-            for name, sound in state.sounds.items()
-            if not sound.is_legacy and sound.files
-        ]
+        sounds_to_process = list(state.sounds.items())
 
         total = len(sounds_to_process)
         success_count = 0

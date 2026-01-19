@@ -283,9 +283,6 @@ class SoundCommands(commands.Cog):
             inline=True,
         )
 
-        if sound.is_legacy:
-            embed.add_field(name="Format", value="Legacy (read-only)", inline=True)
-
         embed.set_footer(text=f"Created: {sound.created.strftime('%Y-%m-%d')}")
 
         await interaction.response.send_message(embed=embed)

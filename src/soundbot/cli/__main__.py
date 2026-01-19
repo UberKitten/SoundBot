@@ -12,83 +12,10 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # Export command
-    export_parser = subparsers.add_parser(
-        "export-history",
-        help="Export Discord channel message history to a JSON file",
-    )
-    export_parser.add_argument(
-        "channel_id",
-        type=int,
-        help="The Discord channel ID to export history from",
-    )
-    export_parser.add_argument(
-        "-o",
-        "--output",
-        type=str,
-        default="config/channel_history.json",
-        help="Output file path (default: config/channel_history.json)",
-    )
-    export_parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        help="Maximum number of messages to fetch (default: all)",
-    )
-
-    # Parse legacy sounds command
-    parse_parser = subparsers.add_parser(
-        "parse-legacy",
-        help="Parse exported history and extract legacy sound commands",
-    )
-    parse_parser.add_argument(
-        "-i",
-        "--input",
-        type=str,
-        default="config/channel_history.json",
-        help="Input history file (default: config/channel_history.json)",
-    )
-    parse_parser.add_argument(
-        "-o",
-        "--output",
-        type=str,
-        default="config/legacy_sounds.json",
-        help="Output file for parsed sounds (default: config/legacy_sounds.json)",
-    )
-
-    # Import legacy sounds command
-    import_parser = subparsers.add_parser(
-        "import-legacy",
-        help="Import legacy sounds from parsed commands file",
-    )
-    import_parser.add_argument(
-        "-i",
-        "--input",
-        type=str,
-        default="config/legacy_sounds.json",
-        help="Input file with parsed sounds (default: config/legacy_sounds.json)",
-    )
-    import_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show what would be imported without actually importing",
-    )
-    import_parser.add_argument(
-        "--skip-existing",
-        action="store_true",
-        default=True,
-        help="Skip sounds that already exist (default: True)",
-    )
-    import_parser.add_argument(
-        "--sound",
-        type=str,
-        help="Import only a specific sound by name",
-    )
-
     # Regenerate audio command
     regen_parser = subparsers.add_parser(
         "regenerate-audio",
-        help="Regenerate trimmed audio files for all non-legacy sounds",
+        help="Regenerate trimmed audio files for all sounds",
     )
     regen_parser.add_argument(
         "--dry-run",
@@ -112,57 +39,13 @@ def main():
         help="Remove broken entries from state (doesn't delete files)",
     )
 
-    # Migrate legacy sounds command
-    migrate_parser = subparsers.add_parser(
-        "migrate-legacy",
-        help="Migrate legacy sounds to new directory format",
-    )
-    migrate_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show what would be migrated without actually doing it",
-    )
-    migrate_parser.add_argument(
-        "--sound",
-        type=str,
-        help="Migrate only a specific sound by name",
-    )
-
     args = parser.parse_args()
 
     if args.command is None:
         parser.print_help()
         sys.exit(1)
 
-    if args.command == "export-history":
-        from soundbot.cli.export_history import export_channel_history
-
-        asyncio.run(
-            export_channel_history(
-                channel_id=args.channel_id,
-                output_path=args.output,
-                limit=args.limit,
-            )
-        )
-    elif args.command == "parse-legacy":
-        from soundbot.cli.parse_legacy import parse_legacy_commands
-
-        parse_legacy_commands(
-            input_path=args.input,
-            output_path=args.output,
-        )
-    elif args.command == "import-legacy":
-        from soundbot.cli.import_legacy import import_legacy_sounds
-
-        asyncio.run(
-            import_legacy_sounds(
-                input_path=args.input,
-                dry_run=args.dry_run,
-                skip_existing=args.skip_existing,
-                sound_name=args.sound,
-            )
-        )
-    elif args.command == "regenerate-audio":
+    if args.command == "regenerate-audio":
         from soundbot.cli.regenerate_audio import regenerate_audio_files
 
         asyncio.run(
@@ -175,15 +58,6 @@ def main():
         from soundbot.cli.check_sounds import check_sounds
 
         check_sounds(remove_broken=args.remove)
-    elif args.command == "migrate-legacy":
-        from soundbot.cli.migrate_legacy import migrate_legacy_sounds
-
-        asyncio.run(
-            migrate_legacy_sounds(
-                dry_run=args.dry_run,
-                sound_name=args.sound,
-            )
-        )
 
 
 if __name__ == "__main__":
