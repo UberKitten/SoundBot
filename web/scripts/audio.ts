@@ -46,13 +46,13 @@ export interface AudioGroup {
 /**
  * Sets the soundboard volume
  *
- * @param vol A value between 0 and 100, inclusive. Values outside this range will be clamped
+ * @param vol A value between 0 and 1000, inclusive. Values outside this range will be clamped
  */
 export function setVolume(vol: string | number | null) {
   const intVol = parseInteger(vol);
   if (typeof intVol === "undefined") return;
 
-  volume = Math.max(0, Math.min(intVol / 100, 1));
+  volume = Math.max(0, Math.min(intVol / 100, 10));
   getActiveAudioGroups().forEach((groups) =>
     groups.forEach(({ gain }) => (gain.gain.value = volume))
   );

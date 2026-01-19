@@ -42,8 +42,20 @@ export function init() {
     setFilter(searchInput.value);
   });
 
+  // Sticky detents
+  const VOLUME_DETENTS = [100];
+  const DETENT_THRESHOLD = 20;
+
   volumeSlider.addEventListener("input", () => {
-    setVolume(volumeSlider.value);
+    let value = parseInt(volumeSlider.value, 10);
+    for (const detent of VOLUME_DETENTS) {
+      if (Math.abs(value - detent) <= DETENT_THRESHOLD) {
+        value = detent;
+        volumeSlider.value = value.toString();
+        break;
+      }
+    }
+    setVolume(value);
   });
 
   stopButton.addEventListener("click", () => {
