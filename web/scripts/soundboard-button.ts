@@ -36,8 +36,8 @@ export class SoundboardButton extends HTMLElement {
 
     if (!this.displayDate) {
       // Convert ISO string to Date for display
-      const modifiedDate = this.sound.modified ? new Date(this.sound.modified) : new Date();
-      this.displayDate = modifiedDate.toLocaleDateString(undefined, {
+      const createdDate = this.sound.created ? new Date(this.sound.created) : new Date();
+      this.displayDate = createdDate.toLocaleDateString(undefined, {
         year: "numeric",
         month: "long",
         day: "numeric",
