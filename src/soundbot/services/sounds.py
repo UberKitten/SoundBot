@@ -1,12 +1,13 @@
 """Service for managing sounds - download, process, store, and retrieve."""
 
+import asyncio
 import logging
 import re
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from soundbot.core.settings import settings
 from soundbot.core.state import state
@@ -15,6 +16,10 @@ from soundbot.services.ffmpeg import ffmpeg_service
 from soundbot.services.ytdlp import ytdlp_service
 
 logger = logging.getLogger(__name__)
+
+# Callback type for sound update events
+# Args: (sound_name: str, modified: datetime, action: str)
+SoundUpdateCallback = Callable[[str, datetime, str], None]
 
 
 def sanitize_name(name: str) -> str:
@@ -53,6 +58,25 @@ class OperationResult:
 
 class SoundService:
     """Service for managing sounds."""
+
+    def __init__(self):
+        self._update_callbacks: list[SoundUpdateCallback] = []
+
+    def on_sound_update(self, callback: SoundUpdateCallback):
+        """Register a callback to be called when sounds are updated.
+        
+        The callback receives (sound_name, modified_timestamp, action).
+        Action is one of: "add", "edit", "delete", "rename"
+        """
+        self._update_callbacks.append(callback)
+
+    def _emit_update(self, sound_name: str, modified: datetime, action: str):
+        """Emit a sound update event to all registered callbacks."""
+        for callback in self._update_callbacks:
+            try:
+                callback(sound_name, modified, action)
+            except Exception as e:
+                logger.error(f"Error in sound update callback: {e}")
 
     @property
     def sounds_dir(self) -> Path:
@@ -232,6 +256,10 @@ class SoundService:
         state.sounds[name_lower] = sound
         state.save()
 
+        # Notify WebSocket clients of the update
+        emit_action = "edit" if overwrite else "add"
+        self._emit_update(name_lower, sound.modified, emit_action)
+
         title_info = f" ({download_result.title})" if download_result.title else ""
         action = "Replaced" if overwrite else "Added"
         return OperationResult(
@@ -384,6 +412,10 @@ class SoundService:
         state.sounds[name_lower] = sound
         state.save()
 
+        # Notify WebSocket clients of the update
+        emit_action = "edit" if overwrite else "add"
+        self._emit_update(name_lower, sound.modified, emit_action)
+
         action = "Replaced" if overwrite else "Added"
         return OperationResult(
             success=True,
@@ -484,6 +516,9 @@ class SoundService:
         sound.modified = datetime.now()
         state.save()
 
+        # Notify WebSocket clients of the update
+        self._emit_update(name_lower, sound.modified, "edit")
+
         ts_str = f"{new_start or 0:.1f}s - {new_end or 'end'}s"
         return OperationResult(
             success=True,
@@ -550,6 +585,9 @@ class SoundService:
         sound.modified = datetime.now()
         state.save()
 
+        # Notify WebSocket clients of the update
+        self._emit_update(name_lower, sound.modified, "edit")
+
         return OperationResult(
             success=True,
             message=f"Set volume for '{name}' to {sound.volume_display}",
@@ -572,6 +610,9 @@ class SoundService:
         # Remove from state
         del state.sounds[name_lower]
         state.save()
+
+        # Notify WebSocket clients of the deletion
+        self._emit_update(name_lower, datetime.now(), "delete")
 
         return OperationResult(success=True, message=f"Deleted sound '{name}'")
 
@@ -689,6 +730,9 @@ class SoundService:
 
             state.save()
 
+            # Notify WebSocket clients of the update
+            self._emit_update(name_lower, sound.modified, "edit")
+
             title_info = f" ({download_result.title})" if download_result.title else ""
             return OperationResult(
                 success=True,
@@ -724,6 +768,10 @@ class SoundService:
         state.sounds[new_lower] = sound
         sound.modified = datetime.now()
         state.save()
+
+        # Notify WebSocket clients - emit delete for old name and add for new name
+        self._emit_update(old_lower, sound.modified, "delete")
+        self._emit_update(new_lower, sound.modified, "add")
 
         return OperationResult(
             success=True,

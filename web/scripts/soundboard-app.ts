@@ -14,6 +14,7 @@ import {
   setError,
   setInfo,
 } from "utils";
+import { SoundUpdateEvent, onSoundUpdate } from "websocket";
 
 export class SoundboardApp extends HTMLElement {
   sounds: Array<Sound> = [];
@@ -24,6 +25,7 @@ export class SoundboardApp extends HTMLElement {
   grid: HTMLElement;
   activeRenders: number[] = [];
   firstRenderCompleted = false;
+  unsubscribeWebSocket: (() => void) | null = null;
 
   constructor() {
     super();
@@ -54,6 +56,132 @@ export class SoundboardApp extends HTMLElement {
         this.updateSoundButtons();
       })
       .catch((error) => setError(error));
+
+    // Subscribe to real-time sound updates for cache busting
+    this.unsubscribeWebSocket = onSoundUpdate((event) => this.handleSoundUpdate(event));
+  }
+
+  disconnectedCallback() {
+    if (this.unsubscribeWebSocket) {
+      this.unsubscribeWebSocket();
+      this.unsubscribeWebSocket = null;
+    }
+  }
+
+  /**
+   * Handle real-time sound update from WebSocket.
+   * Updates the sound's modified timestamp to bust the cache.
+   */
+  handleSoundUpdate(event: SoundUpdateEvent) {
+    const soundName = event.sound_name;
+    const newModified = event.modified;
+
+    if (event.action === "delete") {
+      // Remove the sound from our list
+      const index = this.sounds.findIndex((s) => s.name === soundName);
+      if (index !== -1) {
+        this.sounds.splice(index, 1);
+      }
+
+      // Remove the button from the grid
+      const button = this.grid.querySelector(
+        `soundboard-button[sound*='"name":"${soundName}"']`
+      ) as HTMLElement | null;
+      if (button) {
+        button.remove();
+      }
+      console.log(`[ws] Removed sound button: ${soundName}`);
+      return;
+    }
+
+    if (event.action === "add") {
+      // For new sounds, fetch the sound data and add it
+      console.log(`[ws] Adding new sound: ${soundName}`);
+      this.fetchSingleSound(soundName)
+        .then((sound) => {
+          if (sound) {
+            this.sounds.push(sound);
+            this.addSoundButton(sound);
+            console.log(`[ws] Added sound button: ${soundName}`);
+          } else {
+            console.warn(`[ws] Could not fetch sound data for: ${soundName}`);
+          }
+        })
+        .catch((e) => {
+          console.error(`[ws] Error adding sound ${soundName}:`, e);
+        });
+      return;
+    }
+
+    // For edit actions, update the modified timestamp
+    const sound = this.sounds.find((s) => s.name === soundName);
+    if (sound) {
+      sound.modified = newModified;
+
+      // Update the button's sound attribute to trigger cache bust
+      const button = this.grid.querySelector(
+        `soundboard-button[sound*='"name":"${soundName}"']`
+      ) as HTMLElement | null;
+      if (button) {
+        button.setAttribute("sound", JSON.stringify(sound));
+      }
+    }
+  }
+
+  /**
+   * Fetch a single sound by name from the sounds API.
+   */
+  async fetchSingleSound(name: string): Promise<Sound | null> {
+    try {
+      // Fetch all sounds and find the one we need
+      // This reuses the existing fetchSounds logic which properly parses the response
+      const allSounds = await this.fetchSounds() as Sound[];
+      const sound = allSounds.find((s) => s.name === name);
+      if (sound) {
+        return sound;
+      }
+      console.warn(`[ws] Sound "${name}" not found in API response`);
+      return null;
+    } catch (e) {
+      console.error(`[ws] Error fetching sound "${name}":`, e);
+      return null;
+    }
+  }
+
+  /**
+   * Add a single sound button to the grid in the correct sorted position.
+   */
+  addSoundButton(sound: Sound) {
+    const button = document.createElement("soundboard-button");
+    button.setAttribute("sound", JSON.stringify(sound));
+    button.setAttribute("sort", this.sort ?? "");
+    if (this.singlePlay) button.setAttribute("singleplay", "true");
+    button.classList.add("fade-in");
+    button.dataset.copyText = `${getRandomPrefix()}${sound.name}`;
+
+    // Find the correct position to insert based on current sort
+    const existingButtons = Array.from(
+      this.grid.children as HTMLCollectionOf<HTMLElement>
+    );
+
+    let insertBefore: HTMLElement | null = null;
+    for (const existingButton of existingButtons) {
+      const existingSoundAttr = existingButton.getAttribute("sound");
+      if (!existingSoundAttr) continue;
+
+      const existingSound = JSON.parse(existingSoundAttr) as Sound;
+      // If new sound should come before this one, insert here
+      if (this.sortSounds(sound, existingSound) < 0) {
+        insertBefore = existingButton;
+        break;
+      }
+    }
+
+    if (insertBefore) {
+      this.grid.insertBefore(button, insertBefore);
+    } else {
+      this.grid.appendChild(button);
+    }
   }
 
   sortSounds(a: Sound, b: Sound) {
