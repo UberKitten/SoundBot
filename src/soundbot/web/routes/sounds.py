@@ -31,7 +31,7 @@ async def get_sounds():
                 source_duration=sound.source_duration,
                 trim_start=sound.timestamps.start,
                 trim_end=sound.timestamps.end,
-                volume=sound.volume,
+                volume_adjust=sound.volume_adjust,
                 created=sound.created,
                 modified=sound.modified,
                 discord_plays=sound.discord.plays,

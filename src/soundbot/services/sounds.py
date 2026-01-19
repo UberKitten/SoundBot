@@ -86,7 +86,7 @@ class SoundService:
         url: str,
         start: Optional[float] = None,
         end: Optional[float] = None,
-        volume: float = 1.0,
+        volume_adjust: int = 0,
         overwrite: bool = False,
         created: Optional[datetime] = None,
         added_by: Optional[str] = None,
@@ -158,12 +158,13 @@ class SoundService:
 
         # Process audio for Discord
         audio_file = sound_dir / f"{safe_name}.ogg"
+        volume_db = volume_adjust * 3.0  # Each notch = 3dB
         audio_result = await ffmpeg_service.extract_and_normalize_audio(
             download_result.original_file,
             audio_file,
             start=start,
             end=end,
-            volume=volume,
+            volume_db=volume_db,
         )
         if audio_result.duration_seconds:
             timings["Audio processing"] = audio_result.duration_seconds
@@ -218,7 +219,7 @@ class SoundService:
             source_title=download_result.title,
             source_duration=download_result.duration,
             timestamps=Timestamps(start=start, end=end),
-            volume=volume,
+            volume_adjust=volume_adjust,
             created=final_created,
             added_by=final_added_by,
         )
@@ -247,7 +248,7 @@ class SoundService:
         source_url: Optional[str] = None,
         start: Optional[float] = None,
         end: Optional[float] = None,
-        volume: float = 1.0,
+        volume_adjust: int = 0,
         overwrite: bool = False,
         created: Optional[datetime] = None,
         added_by: Optional[str] = None,
@@ -333,12 +334,13 @@ class SoundService:
 
         # Process audio for Discord
         audio_file = sound_dir / f"{safe_name}.ogg"
+        volume_db = volume_adjust * 3.0  # Each notch = 3dB
         audio_result = await ffmpeg_service.extract_and_normalize_audio(
             original_file,
             audio_file,
             start=start,
             end=end,
-            volume=volume,
+            volume_db=volume_db,
         )
         if audio_result.duration_seconds:
             timings["Audio processing"] = audio_result.duration_seconds
@@ -369,7 +371,7 @@ class SoundService:
             source_title=None,
             source_duration=probe.duration,
             timestamps=Timestamps(start=start, end=end),
-            volume=volume,
+            volume_adjust=volume_adjust,
             created=final_created,
             added_by=final_added_by,
         )
@@ -452,7 +454,7 @@ class SoundService:
             audio_file,
             start=new_start,
             end=new_end,
-            volume=sound.volume,
+            volume_db=sound.volume_db,
         )
         if audio_result.duration_seconds:
             timings["Audio processing"] = audio_result.duration_seconds
@@ -486,6 +488,71 @@ class SoundService:
         return OperationResult(
             success=True,
             message=f"Updated timestamps for '{name}' to {ts_str}",
+            timings=timings,
+        )
+
+    async def set_volume(
+        self,
+        name: str,
+        volume_adjust: int,
+    ) -> OperationResult:
+        """
+        Set the volume adjustment for a sound and regenerate its audio.
+
+        Args:
+            name: Sound name.
+            volume_adjust: Volume adjustment in notches (-5 to +3).
+                          Each notch = 3dB. 0 = normal, negative = quieter.
+        """
+        timings: dict[str, float] = {}
+        name_lower = name.lower()
+        sound = state.sounds.get(name_lower)
+
+        if not sound:
+            return OperationResult(success=False, message=f"Sound '{name}' not found")
+
+        # Clamp to reasonable limits
+        volume_adjust = max(-5, min(3, volume_adjust))
+
+        sound_dir = self.sounds_dir / sound.directory
+        original_file = sound_dir / sound.files.original
+
+        if not original_file.exists():
+            return OperationResult(
+                success=False,
+                message="Original file not found. The sound may need to be re-downloaded.",
+            )
+
+        # Re-process audio with new volume
+        safe_name = sanitize_name(name)
+        audio_file = sound_dir / f"{safe_name}.ogg"
+        volume_db = volume_adjust * 3.0
+
+        audio_result = await ffmpeg_service.extract_and_normalize_audio(
+            original_file,
+            audio_file,
+            start=sound.timestamps.start,
+            end=sound.timestamps.end,
+            volume_db=volume_db,
+        )
+        if audio_result.duration_seconds:
+            timings["Audio processing"] = audio_result.duration_seconds
+
+        if not audio_result.success:
+            return OperationResult(
+                success=False,
+                message=f"Failed to process audio: {audio_result.error}",
+                timings=timings,
+            )
+
+        # Update sound entry
+        sound.volume_adjust = volume_adjust
+        sound.modified = datetime.now()
+        state.save()
+
+        return OperationResult(
+            success=True,
+            message=f"Set volume for '{name}' to {sound.volume_display}",
             timings=timings,
         )
 

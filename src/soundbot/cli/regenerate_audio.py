@@ -50,7 +50,7 @@ async def _process_sound(
                 message=f"Original file not found ({sound.files.original})",
             )
 
-        volume_info = f"volume={sound.volume}" if sound.volume != 1.0 else ""
+        volume_info = f"volume={sound.volume_adjust}" if sound.volume_adjust != 0 else ""
         info = f" ({volume_info})" if volume_info else ""
 
         if dry_run:
@@ -67,7 +67,7 @@ async def _process_sound(
             audio_file,
             start=sound.timestamps.start,
             end=sound.timestamps.end,
-            volume=sound.volume,
+            volume_db=sound.volume_db,
         )
 
         if result.success:

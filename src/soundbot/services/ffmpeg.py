@@ -95,7 +95,7 @@ class FFmpegService:
         output_file: Path,
         start: Optional[float] = None,
         end: Optional[float] = None,
-        volume: float = 1.0,
+        volume_db: float = 0.0,
     ) -> ProcessResult:
         """
         Extract audio from input, trim, normalize, and optimize for Discord.
@@ -103,7 +103,7 @@ class FFmpegService:
         Uses loudnorm filter for EBU R128 normalization.
         Output is opus in ogg container for best Discord compatibility.
 
-        Volume parameter adjusts the level after normalization (per-sound adjustment).
+        volume_db: dB adjustment applied after normalization (negative = quieter).
         """
         args = ["ffmpeg", "-y"]
 
@@ -126,9 +126,9 @@ class FFmpegService:
         target_lufs = settings.audio_target_lufs
         filters.append(f"loudnorm=I={target_lufs}:TP=-1.5:LRA=11")
 
-        # Per-sound volume adjustment (applied after normalization)
-        if volume != 1.0:
-            filters.append(f"volume={volume}")
+        # Per-sound volume adjustment in dB (applied after normalization)
+        if volume_db != 0.0:
+            filters.append(f"volume={volume_db}dB")
 
         if filters:
             args.extend(["-af", ",".join(filters)])

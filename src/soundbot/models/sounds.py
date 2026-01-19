@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Timestamps(BaseModel):
@@ -41,10 +41,34 @@ class Sound(BaseModel):
     # Trim settings
     timestamps: Timestamps = Field(default_factory=Timestamps)
 
-    # Audio settings
-    volume: float = (
-        1.0  # Volume multiplier (1.0 = normalized, 0.5 = half, 2.0 = double)
-    )
+    # Audio settings - volume adjustment in "notches" (each notch = 3dB)
+    # 0 = normal, negative = quieter, positive = louder
+    # Range: -5 to +3 (reasonable limits)
+    volume_adjust: int = 0
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_volume_field(cls, data: Any) -> Any:
+        """Handle migration from old 'volume' float field to 'volume_adjust' int."""
+        if isinstance(data, dict):
+            # Remove old 'volume' field if present (was always 1.0, unused)
+            data.pop("volume", None)
+        return data
+
+    @property
+    def volume_db(self) -> float:
+        """Convert notches to dB adjustment."""
+        return self.volume_adjust * 3.0
+
+    @property
+    def volume_display(self) -> str:
+        """Human-readable volume description."""
+        if self.volume_adjust == 0:
+            return "normal"
+        elif self.volume_adjust < 0:
+            return f"{self.volume_adjust} (quieter)"
+        else:
+            return f"+{self.volume_adjust} (louder)"
 
     # Metadata
     created: datetime = Field(default_factory=datetime.now)

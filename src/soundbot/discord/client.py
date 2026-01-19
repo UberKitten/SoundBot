@@ -110,7 +110,6 @@ class SoundCommands(commands.Cog):
         url="URL to download from (YouTube, etc.)",
         start="Start time in seconds (optional)",
         end="End time in seconds (optional)",
-        volume="Volume multiplier, 0.1-5.0, default 1.0 (optional)",
         overwrite="Overwrite existing sound if it exists (default: False)",
     )
     async def add_sound(
@@ -120,7 +119,6 @@ class SoundCommands(commands.Cog):
         url: str,
         start: Optional[float] = None,
         end: Optional[float] = None,
-        volume: Optional[float] = 1.0,
         overwrite: bool = False,
     ):
         """Add a new sound from a URL."""
@@ -138,7 +136,6 @@ class SoundCommands(commands.Cog):
             url=url,
             start=start,
             end=end,
-            volume=volume or 1.0,
             overwrite=overwrite,
         )
 
@@ -243,6 +240,54 @@ class SoundCommands(commands.Cog):
         emoji = "✅" if result.success else "❌"
         await interaction.followup.send(f"{emoji} {result.full_message()}")
 
+    @app_commands.command(name="volume")
+    @app_commands.describe(
+        name="Name of the sound",
+        adjustment="Direction: 'down', 'up', or 'reset'",
+        amount="Number of notches to adjust (default: 1)",
+    )
+    @app_commands.choices(
+        adjustment=[
+            app_commands.Choice(name="down (quieter)", value="down"),
+            app_commands.Choice(name="up (louder)", value="up"),
+            app_commands.Choice(name="reset (normal)", value="reset"),
+        ]
+    )
+    async def volume_sound(
+        self,
+        interaction: Interaction,
+        name: str,
+        adjustment: str,
+        amount: int = 1,
+    ):
+        """Adjust volume for a sound. Each notch is a noticeable change."""
+        await interaction.response.defer(thinking=True)
+
+        # Strip any command prefix from the name
+        name = strip_command_prefix(name)
+
+        # Get current sound to calculate new volume
+        sound = sound_service.get_sound(name)
+        if not sound:
+            await interaction.followup.send(f"❌ Sound '{name}' not found")
+            return
+
+        # Calculate new volume_adjust
+        if adjustment == "reset":
+            new_volume = 0
+        elif adjustment == "down":
+            new_volume = sound.volume_adjust - abs(amount)
+        elif adjustment == "up":
+            new_volume = sound.volume_adjust + abs(amount)
+        else:
+            await interaction.followup.send(f"❌ Unknown adjustment: {adjustment}")
+            return
+
+        result = await sound_service.set_volume(name=name, volume_adjust=new_volume)
+
+        emoji = "✅" if result.success else "❌"
+        await interaction.followup.send(f"{emoji} {result.full_message()}")
+
     @app_commands.command(name="info")
     @app_commands.describe(name="Name of the sound")
     async def sound_info(self, interaction: Interaction, name: str):
@@ -273,7 +318,7 @@ class SoundCommands(commands.Cog):
             ts_str = f"{ts.start or 0:.1f}s - {ts.end or 'end'}s"
             embed.add_field(name="Trim", value=ts_str, inline=True)
 
-        embed.add_field(name="Volume", value=f"{sound.volume:.1f}x", inline=True)
+        embed.add_field(name="Volume", value=sound.volume_display, inline=True)
         embed.add_field(
             name="Discord Plays",
             value=str(sound.discord.plays),

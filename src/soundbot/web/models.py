@@ -17,8 +17,8 @@ class SoundResponse(BaseModel):
     # Trim settings
     trim_start: Optional[float] = None
     trim_end: Optional[float] = None
-    # Audio settings
-    volume: float = 1.0
+    # Audio settings - volume adjustment in notches (0 = normal)
+    volume_adjust: int = 0
     # Metadata
     created: Optional[datetime] = None
     modified: Optional[datetime] = None
