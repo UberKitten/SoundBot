@@ -124,7 +124,7 @@ class SoundService:
                     orig_path = self.sounds_dir / existing_sound.original_filename
                     if orig_path.exists():
                         orig_path.unlink()
-            else:
+            elif existing_sound.directory:
                 # Delete new format directory
                 old_sound_dir = self.sounds_dir / existing_sound.directory
                 if old_sound_dir.exists():
@@ -248,6 +248,168 @@ class SoundService:
         return OperationResult(
             success=True,
             message=f"{action} sound '{name}'{title_info}",
+            timings=timings,
+        )
+
+    async def add_sound_from_file(
+        self,
+        name: str,
+        file_data: bytes,
+        original_filename: str,
+        source_url: Optional[str] = None,
+        start: Optional[float] = None,
+        end: Optional[float] = None,
+        volume: float = 1.0,
+        overwrite: bool = False,
+        created: Optional[datetime] = None,
+        added_by: Optional[str] = None,
+    ) -> OperationResult:
+        """
+        Add a new sound from uploaded file data.
+
+        Args:
+            name: Name for the sound.
+            file_data: Raw bytes of the audio file.
+            original_filename: Original filename (used to determine extension).
+            source_url: Optional reference URL (not used for downloading).
+            start: Optional start time in seconds for trimming.
+            end: Optional end time in seconds for trimming.
+            volume: Volume multiplier (default 1.0).
+            overwrite: Whether to overwrite existing sound.
+            created: Optional creation date to preserve.
+            added_by: Username of who added this sound.
+
+        Returns OperationResult with timing information.
+        """
+        import time
+
+        timings: dict[str, float] = {}
+        name_lower = name.lower()
+        safe_name = sanitize_name(name)
+
+        # Check if sound already exists
+        existing_sound = state.sounds.get(name_lower)
+        if existing_sound:
+            if not overwrite:
+                return OperationResult(
+                    success=False,
+                    message=f"Sound '{name}' already exists. Use overwrite=True to replace it.",
+                )
+
+            # Delete the old sound before adding new one
+            if existing_sound.is_legacy:
+                # Delete legacy files
+                if existing_sound.filename:
+                    file_path = self.sounds_dir / existing_sound.filename
+                    if file_path.exists():
+                        file_path.unlink()
+                if existing_sound.original_filename:
+                    orig_path = self.sounds_dir / existing_sound.original_filename
+                    if orig_path.exists():
+                        orig_path.unlink()
+            elif existing_sound.directory:
+                # Delete new format directory
+                old_sound_dir = self.sounds_dir / existing_sound.directory
+                if old_sound_dir.exists():
+                    shutil.rmtree(old_sound_dir)
+
+            # Preserve play counts, created date, and added_by from old sound
+            old_discord_plays = existing_sound.discord.plays
+            old_twitch_plays = existing_sound.twitch.plays
+            old_created = existing_sound.created
+            old_added_by = existing_sound.added_by
+        else:
+            old_discord_plays = 0
+            old_twitch_plays = 0
+            old_created = None
+            old_added_by = None
+
+        sound_dir = self.get_sound_dir(name)
+        sound_dir.mkdir(parents=True, exist_ok=True)
+
+        # Determine file extension from original filename
+        ext = Path(original_filename).suffix.lower() or ".mp3"
+        original_file = sound_dir / f"{safe_name}_original{ext}"
+
+        # Write the file
+        start_time = time.monotonic()
+        try:
+            original_file.write_bytes(file_data)
+            timings["File save"] = time.monotonic() - start_time
+        except Exception as e:
+            if sound_dir.exists():
+                shutil.rmtree(sound_dir)
+            return OperationResult(
+                success=False,
+                message=f"Failed to save file: {e}",
+                timings=timings,
+            )
+
+        # Check what we got
+        probe = await ffmpeg_service.probe(original_file)
+        if not probe or not probe.has_audio:
+            shutil.rmtree(sound_dir)
+            return OperationResult(
+                success=False,
+                message="File has no audio",
+                timings=timings,
+            )
+
+        # Process audio for Discord
+        audio_file = sound_dir / f"{safe_name}.ogg"
+        audio_result = await ffmpeg_service.extract_and_normalize_audio(
+            original_file,
+            audio_file,
+            start=start,
+            end=end,
+            volume=volume,
+        )
+        if audio_result.duration_seconds:
+            timings["Audio processing"] = audio_result.duration_seconds
+
+        if not audio_result.success:
+            shutil.rmtree(sound_dir)
+            return OperationResult(
+                success=False,
+                message=f"Failed to process audio: {audio_result.error}",
+                timings=timings,
+            )
+
+        # Determine the creation date to use
+        final_created = created or old_created or datetime.now()
+        final_added_by = added_by or old_added_by
+
+        # Create sound entry
+        sound = Sound(
+            directory=safe_name,
+            files=SoundFiles(
+                original=original_file.name,
+                trimmed_video=None,
+                trimmed_audio=audio_file.name,
+                metadata=None,  # No yt-dlp metadata for uploaded files
+                subtitles=None,
+            ),
+            source_url=source_url,
+            source_title=None,
+            source_duration=probe.duration,
+            timestamps=Timestamps(start=start, end=end),
+            volume=volume,
+            created=final_created,
+            added_by=final_added_by,
+        )
+
+        # Restore play counts if overwriting
+        if old_discord_plays > 0 or old_twitch_plays > 0:
+            sound.discord.plays = old_discord_plays
+            sound.twitch.plays = old_twitch_plays
+
+        state.sounds[name_lower] = sound
+        state.save()
+
+        action = "Replaced" if overwrite else "Added"
+        return OperationResult(
+            success=True,
+            message=f"{action} sound '{name}' from uploaded file",
             timings=timings,
         )
 

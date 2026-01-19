@@ -22,8 +22,10 @@ class Settings(BaseSettings):
 
     twitch_command_prefixes: list[str] = ["!", "¡", "?", "‽", "$", "~", "ඞ", "ꙮ"]
 
-    # When changing, run CLI command to re-create audio files
-    audio_file_volume: float = 0.7
+    # Target loudness for audio normalization (EBU R128)
+    # Lower values are quieter
+    # When changing, run: uv run python -m soundbot.cli regenerate-audio
+    audio_target_lufs: float = -30.0
 
 
 settings = Settings()

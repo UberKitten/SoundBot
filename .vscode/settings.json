@@ -9,5 +9,8 @@
   },
   "files.associations": {
     ".env.*": "properties"
+  },
+  "chat.tools.terminal.autoApprove": {
+    "uv": true
   }
 }

@@ -3,6 +3,7 @@ import logging
 import random
 import shutil
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import discord
@@ -734,12 +735,66 @@ class QueueCog(commands.Cog):
 
 
 class PlaybackCog(commands.Cog):
-    """Text commands for sound playback."""
+    """Text commands for sound playback and file uploads."""
 
     def __init__(self, bot: SoundBot):
         self.bot = bot
         # Get all configured prefixes
         self.prefixes = settings.twitch_command_prefixes or ["!"]
+
+    @commands.command(name="add")
+    async def add_sound_file(self, ctx: commands.Context, name: str, source_url: Optional[str] = None):
+        """
+        Add a sound from an attached audio file.
+
+        Usage: !add soundname [optional_source_url]
+        Attach an audio file (mp3, wav, ogg, etc.) to your message.
+        """
+        # Check for attachment
+        if not ctx.message.attachments:
+            await ctx.send("❌ Please attach an audio file to your message.\nUsage: `!add soundname` with an audio file attached.")
+            return
+
+        attachment = ctx.message.attachments[0]
+
+        # Validate it looks like an audio file
+        audio_extensions = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".opus", ".webm", ".mp4", ".mkv"}
+        ext = Path(attachment.filename).suffix.lower()
+        if ext not in audio_extensions:
+            await ctx.send(f"❌ File doesn't appear to be audio. Supported formats: {', '.join(sorted(audio_extensions))}")
+            return
+
+        # Size limit (e.g., 25MB)
+        max_size = 25 * 1024 * 1024
+        if attachment.size > max_size:
+            await ctx.send(f"❌ File too large. Maximum size is 25MB.")
+            return
+
+        # Strip any command prefix from the name
+        name = strip_command_prefix(name)
+
+        # Show progress
+        progress_msg = await ctx.send(f"⏳ Processing `{name}` from uploaded file...")
+
+        try:
+            # Download the attachment
+            file_data = await attachment.read()
+
+            # Add the sound
+            result = await sound_service.add_sound_from_file(
+                name=name,
+                file_data=file_data,
+                original_filename=attachment.filename,
+                source_url=source_url,
+                added_by=str(ctx.author),
+            )
+
+            emoji = "✅" if result.success else "❌"
+            await progress_msg.edit(content=f"{emoji} {result.full_message()}")
+
+        except Exception as e:
+            logger.error(f"Error adding sound from file: {e}")
+            await progress_msg.edit(content=f"❌ Error: {e}")
 
     @commands.command(name="stop")
     async def stop_playback(self, ctx: commands.Context):
@@ -891,6 +946,7 @@ class PlaybackCog(commands.Cog):
 
         # Skip if it's a registered command
         registered_commands = [
+            "add",
             "stop",
             "leave",
             "sounds",

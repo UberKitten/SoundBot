@@ -26,8 +26,8 @@ def main():
         "-o",
         "--output",
         type=str,
-        default="mount/channel_history.json",
-        help="Output file path (default: mount/channel_history.json)",
+        default="config/channel_history.json",
+        help="Output file path (default: config/channel_history.json)",
     )
     export_parser.add_argument(
         "--limit",
@@ -45,15 +45,15 @@ def main():
         "-i",
         "--input",
         type=str,
-        default="mount/channel_history.json",
-        help="Input history file (default: mount/channel_history.json)",
+        default="config/channel_history.json",
+        help="Input history file (default: config/channel_history.json)",
     )
     parse_parser.add_argument(
         "-o",
         "--output",
         type=str,
-        default="mount/legacy_sounds.json",
-        help="Output file for parsed sounds (default: mount/legacy_sounds.json)",
+        default="config/legacy_sounds.json",
+        help="Output file for parsed sounds (default: config/legacy_sounds.json)",
     )
 
     # Import legacy sounds command
@@ -65,8 +65,8 @@ def main():
         "-i",
         "--input",
         type=str,
-        default="mount/legacy_sounds.json",
-        help="Input file with parsed sounds (default: mount/legacy_sounds.json)",
+        default="config/legacy_sounds.json",
+        help="Input file with parsed sounds (default: config/legacy_sounds.json)",
     )
     import_parser.add_argument(
         "--dry-run",
@@ -99,6 +99,33 @@ def main():
         "--sound",
         type=str,
         help="Regenerate only a specific sound by name",
+    )
+
+    # Check sounds command
+    check_parser = subparsers.add_parser(
+        "check-sounds",
+        help="Check for sounds with missing audio files",
+    )
+    check_parser.add_argument(
+        "--remove",
+        action="store_true",
+        help="Remove broken entries from state (doesn't delete files)",
+    )
+
+    # Migrate legacy sounds command
+    migrate_parser = subparsers.add_parser(
+        "migrate-legacy",
+        help="Migrate legacy sounds to new directory format",
+    )
+    migrate_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be migrated without actually doing it",
+    )
+    migrate_parser.add_argument(
+        "--sound",
+        type=str,
+        help="Migrate only a specific sound by name",
     )
 
     args = parser.parse_args()
@@ -140,6 +167,19 @@ def main():
 
         asyncio.run(
             regenerate_audio_files(
+                dry_run=args.dry_run,
+                sound_name=args.sound,
+            )
+        )
+    elif args.command == "check-sounds":
+        from soundbot.cli.check_sounds import check_sounds
+
+        check_sounds(remove_broken=args.remove)
+    elif args.command == "migrate-legacy":
+        from soundbot.cli.migrate_legacy import migrate_legacy_sounds
+
+        asyncio.run(
+            migrate_legacy_sounds(
                 dry_run=args.dry_run,
                 sound_name=args.sound,
             )

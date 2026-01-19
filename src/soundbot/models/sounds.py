@@ -22,7 +22,7 @@ class SoundFiles(BaseModel):
     original: str  # Original downloaded file (video or audio)
     trimmed_video: Optional[str] = None  # Trimmed video file (if source was video)
     trimmed_audio: str  # Trimmed and normalized audio for Discord playback
-    metadata: str = "metadata.json"  # yt-dlp info JSON
+    metadata: Optional[str] = "metadata.json"  # yt-dlp info JSON (None for uploaded files)
     subtitles: Optional[str] = None  # Subtitles file if available
 
 

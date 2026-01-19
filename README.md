@@ -44,7 +44,7 @@ token=your_discord_bot_token_here
 test_guild_ids=123456789,987654321
 
 # Optional: Override default paths
-# state_file=mount/state.json
+# state_file=config/state.json
 # sounds_folder=mount/sounds
 # static_folder=web/dist
 # templates_folder=web/template
@@ -98,7 +98,7 @@ docker-compose up --build
 │   ├── styles/            # CSS
 │   ├── static/            # Static assets
 │   └── template/          # Jinja2 templates
-├── mount/                 # Runtime data (sounds, state)
+├── config/                 # Runtime data (sounds, state)
 ├── Dockerfile
 ├── docker-compose.yml
 └── pyproject.toml

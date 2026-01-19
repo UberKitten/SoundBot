@@ -1,6 +1,6 @@
 """Regenerate audio files for all non-legacy sounds.
 
-Use this when changing the global audio_file_volume setting in settings.
+Use this when changing the audio_target_lufs setting.
 """
 
 import asyncio
@@ -20,7 +20,7 @@ async def regenerate_audio_files(dry_run: bool = False, sound_name: str | None =
     Regenerate all trimmed audio files for non-legacy sounds.
 
     This re-extracts and normalizes audio from original files using current settings,
-    including the global audio_file_volume setting.
+    including the audio_target_lufs setting.
 
     Args:
         dry_run: If True, only show what would be regenerated without doing it.
@@ -43,7 +43,7 @@ async def regenerate_audio_files(dry_run: bool = False, sound_name: str | None =
     skipped = 0
     failed = 0
 
-    print(f"🔊 Global audio_file_volume: {settings.audio_file_volume}")
+    print(f"🔊 Target LUFS: {settings.audio_target_lufs}")
     print(f"📁 Processing {total} sounds...\n")
 
     for name, sound in sounds_to_process:
@@ -66,16 +66,17 @@ async def regenerate_audio_files(dry_run: bool = False, sound_name: str | None =
             failed += 1
             continue
 
-        effective_volume = sound.volume * settings.audio_file_volume
-        volume_info = f"volume={sound.volume} × {settings.audio_file_volume} = {effective_volume:.2f}"
+        volume_info = f"volume={sound.volume}" if sound.volume != 1.0 else ""
 
         if dry_run:
-            print(f"🔄 {name}: Would regenerate ({volume_info})")
+            info = f" ({volume_info})" if volume_info else ""
+            print(f"🔄 {name}: Would regenerate{info}")
             processed += 1
             continue
 
         # Regenerate audio
-        print(f"🔄 {name}: Regenerating... ({volume_info})")
+        info = f" ({volume_info})" if volume_info else ""
+        print(f"🔄 {name}: Regenerating...{info}")
         result = await ffmpeg_service.extract_and_normalize_audio(
             original_file,
             audio_file,

@@ -15,8 +15,8 @@
 
 $ErrorActionPreference = "Stop"
 
-$dbPath = "mount/db.json"
-$statePath = "mount/state.json"
+$dbPath = "config/db.json"
+$statePath = "config/state.json"
 
 Write-Host "=== SoundBot Migration: db.json -> state.json ===" -ForegroundColor Cyan
 Write-Host ""

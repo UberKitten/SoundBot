@@ -57,7 +57,7 @@ web/                    # Frontend source
 ├── static/             # Static assets (icons, manifests)
 └── template/           # Jinja2 HTML templates
 
-mount/sounds/           # Sound storage
+config/sounds/           # Sound storage
 └── <sound_name>/       # Each sound has its own directory
     ├── metadata.json   # yt-dlp metadata
     ├── <name>.mkv      # Original downloaded file
@@ -141,8 +141,8 @@ docker-compose up --build
 |----------|----------|-------------|
 | `token` | Yes | Discord bot token |
 | `test_guild_ids` | No | Comma-separated guild IDs for slash command registration |
-| `state_file` | No | Path to state JSON (default: `mount/state.json`) |
-| `sounds_folder` | No | Path to sounds directory (default: `mount/sounds`) |
+| `state_file` | No | Path to state JSON (default: `config/state.json`) |
+| `sounds_folder` | No | Path to sounds directory (default: `config/sounds`) |
 
 ## Testing
 
