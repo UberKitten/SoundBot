@@ -214,6 +214,8 @@ class YtdlpService:
                 url,
                 "--output",
                 output_template,
+                # Only download single video, not entire playlist
+                "--no-playlist",
                 # Best quality video+audio, or best audio only
                 "--format",
                 "bestvideo+bestaudio/best/bestaudio",
