@@ -26,6 +26,16 @@
             "module": "soundbot",
             "justMyCode": true,
             "preLaunchTask": "Update & Watch Web"
+        },
+        {
+            "name": "Docker Compose",
+            "type": "node",
+            "request": "launch",
+            "preLaunchTask": "Docker Compose Build & Run",
+            "serverReadyAction": {
+                "pattern": "Application startup complete",
+                "action": "debugWithChrome"
+            }
         }
     ]
 }

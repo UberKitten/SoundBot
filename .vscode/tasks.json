@@ -84,6 +84,44 @@
             "presentation": {
                 "reveal": "silent"
             }
+        },
+        {
+            "label": "Docker Compose Build",
+            "type": "shell",
+            "command": "docker compose build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Docker Compose Up",
+            "type": "shell",
+            "command": "docker compose up -d",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Docker Compose Logs",
+            "type": "shell",
+            "command": "docker compose logs --follow",
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "focus": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Docker Compose Build & Run",
+            "dependsOn": ["Docker Compose Build", "Docker Compose Up", "Docker Compose Logs"],
+            "dependsOrder": "sequence",
+            "presentation": {
+                "reveal": "always"
+            }
         }
     ]
 }
