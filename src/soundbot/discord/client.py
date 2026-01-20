@@ -109,8 +109,8 @@ class SoundCommands(commands.Cog):
     @app_commands.describe(
         name="Name for the sound (used to play it)",
         url="URL to download from (YouTube, etc.)",
-        start="Start time in seconds (optional)",
-        end="End time in seconds (optional)",
+        start="Start time (e.g. '90' or '1:30')",
+        end="End time (e.g. '120' or '2:00')",
         overwrite="Overwrite existing sound if it exists (default: False)",
     )
     async def add_sound(
@@ -118,8 +118,8 @@ class SoundCommands(commands.Cog):
         interaction: Interaction,
         name: str,
         url: str,
-        start: Optional[float] = None,
-        end: Optional[float] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
         overwrite: bool = False,
     ):
         """Add a new sound from a URL."""
@@ -128,6 +128,17 @@ class SoundCommands(commands.Cog):
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
 
+        # Parse timestamps (supports both "90" and "1:30" formats)
+        start_seconds = parse_timestamp(start) if start else None
+        end_seconds = parse_timestamp(end) if end else None
+
+        if start is not None and start_seconds is None:
+            await interaction.followup.send(f"❌ Invalid start time: '{start}'. Use seconds (90) or MM:SS (1:30).")
+            return
+        if end is not None and end_seconds is None:
+            await interaction.followup.send(f"❌ Invalid end time: '{end}'. Use seconds (90) or MM:SS (1:30).")
+            return
+
         logger.info(
             f"User {interaction.user} ({interaction.user.id}) adding sound '{name}' from {url}"
         )
@@ -135,8 +146,8 @@ class SoundCommands(commands.Cog):
         result = await sound_service.add_sound(
             name=name,
             url=url,
-            start=start,
-            end=end,
+            start=start_seconds,
+            end=end_seconds,
             overwrite=overwrite,
         )
 
@@ -342,88 +353,49 @@ class SoundCommands(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="sounds")
-    @app_commands.describe(search="Search term (optional)")
-    async def sounds(
+    async def sounds(self, interaction: Interaction):
+        """Browse sounds on the web UI."""
+        # Direct to web UI
+        embed = discord.Embed(
+            title="🔊 Browse Sounds",
+            description="Visit the web interface to browse, search, and preview all sounds:",
+            color=discord.Color.blue(),
+            url=f"https://{settings.web_ui_url}",
+        )
+        embed.add_field(
+            name="Web UI",
+            value=f"[{settings.web_ui_url}](https://{settings.web_ui_url})",
+            inline=False,
+        )
+        embed.add_field(
+            name="Tip",
+            value="Use `/search <query>` to search from Discord or `/list` to see all sounds",
+            inline=False,
+        )
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="search")
+    @app_commands.describe(query="Search term")
+    async def search_sounds(
         self,
         interaction: Interaction,
-        search: Optional[str] = None,
+        query: str,
     ):
-        """Browse sounds on the web UI or search for sounds."""
-        if search:
-            # Search for sounds
-            results = sound_service.search_sounds(search)
-            if not results:
-                await interaction.response.send_message(
-                    f"❌ No sounds matching '{search}'"
-                )
-                return
-
-            names = [name for name, _ in results]
-
-            # Paginate if too many
-            chunks = [names[i : i + 50] for i in range(0, len(names), 50)]
-
-            embed = discord.Embed(
-                title=f"🔊 Sounds matching '{search}' ({len(names)} total)",
-                description=", ".join(chunks[0]),
-                color=discord.Color.blue(),
+        """Search for sounds."""
+        results = sound_service.search_sounds(query)
+        if not results:
+            await interaction.response.send_message(
+                f"❌ No sounds matching '{query}'"
             )
+            return
 
-            if len(chunks) > 1:
-                embed.set_footer(text=f"Showing first 50 of {len(names)}")
-
-            await interaction.response.send_message(embed=embed)
-        else:
-            # Direct to web UI
-            embed = discord.Embed(
-                title="🔊 Browse Sounds",
-                description="Visit the web interface to browse, search, and preview all sounds:",
-                color=discord.Color.blue(),
-                url=f"https://{settings.web_ui_url}",
-            )
-            embed.add_field(
-                name="Web UI",
-                value=f"[{settings.web_ui_url}](https://{settings.web_ui_url})",
-                inline=False,
-            )
-            embed.add_field(
-                name="Tip",
-                value="Use `/sounds <search>` to search from Discord",
-                inline=False,
-            )
-            await interaction.response.send_message(embed=embed)
-
-    @app_commands.command(name="list")
-    @app_commands.describe(search="Search term (optional)")
-    async def list_sounds(
-        self,
-        interaction: Interaction,
-        search: Optional[str] = None,
-    ):
-        """List all sounds or search for sounds."""
-        if search:
-            results = sound_service.search_sounds(search)
-            if not results:
-                await interaction.response.send_message(
-                    f"❌ No sounds matching '{search}'"
-                )
-                return
-            names = [name for name, _ in results]
-            title = f"Sounds matching '{search}'"
-        else:
-            names = sorted(sound_service.list_sounds().keys())
-            if not names:
-                await interaction.response.send_message(
-                    "No sounds yet! Use /add to add some."
-                )
-                return
-            title = "All Sounds"
+        names = [name for name, _ in results]
 
         # Paginate if too many
         chunks = [names[i : i + 50] for i in range(0, len(names), 50)]
 
         embed = discord.Embed(
-            title=f"🔊 {title} ({len(names)} total)",
+            title=f"🔊 Sounds matching '{query}' ({len(names)} total)",
             description=", ".join(chunks[0]),
             color=discord.Color.blue(),
         )
@@ -432,6 +404,41 @@ class SoundCommands(commands.Cog):
             embed.set_footer(text=f"Showing first 50 of {len(names)}")
 
         await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="list")
+    async def list_sounds(self, interaction: Interaction):
+        """List all sounds (may send multiple messages)."""
+        names = sorted(sound_service.list_sounds().keys())
+        if not names:
+            await interaction.response.send_message(
+                "No sounds yet! Use /add to add some."
+            )
+            return
+
+        # Split into chunks of 50 sounds per message
+        chunks = [names[i : i + 50] for i in range(0, len(names), 50)]
+
+        # Send first chunk as response
+        embed = discord.Embed(
+            title=f"🔊 All Sounds ({len(names)} total)",
+            description=", ".join(chunks[0]),
+            color=discord.Color.blue(),
+        )
+
+        if len(chunks) > 1:
+            embed.set_footer(text=f"Page 1 of {len(chunks)}")
+
+        await interaction.response.send_message(embed=embed)
+
+        # Send remaining chunks as follow-up messages
+        for i, chunk in enumerate(chunks[1:], start=2):
+            embed = discord.Embed(
+                title=f"🔊 All Sounds (continued)",
+                description=", ".join(chunk),
+                color=discord.Color.blue(),
+            )
+            embed.set_footer(text=f"Page {i} of {len(chunks)}")
+            await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="random")
     async def random_sound(self, interaction: Interaction):
