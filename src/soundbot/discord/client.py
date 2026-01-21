@@ -4,7 +4,7 @@ import random
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, override
 
 import discord
 from discord import Interaction, app_commands
@@ -67,12 +67,14 @@ class SoundBot(commands.Bot):
         return [discord.Object(id=gid) for gid in self.test_guild_ids]
 
     async def on_ready(self):
+        assert self.user is not None  # Always set when on_ready is called
         logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         logger.info(f"Connected to {len(self.guilds)} guilds")
         prefixes = settings.twitch_command_prefixes or ["!"]
         logger.info(f"Command prefixes: {prefixes}")
 
-    async def setup_hook(self):
+    @override
+    async def setup_hook(self) -> None:
         """Called when the bot is starting up."""
         # Add cogs
         await self.add_cog(SoundCommands(self))
@@ -86,13 +88,14 @@ class SoundBot(commands.Bot):
             for guild_id in self.test_guild_ids:
                 guild = discord.Object(id=guild_id)
                 self.tree.copy_global_to(guild=guild)
-                await self.tree.sync(guild=guild)
+                _ = await self.tree.sync(guild=guild)
                 logger.info(f"Synced commands to guild {guild_id}")
         else:
-            await self.tree.sync()
+            _ = await self.tree.sync()
             logger.info("Synced commands globally")
 
-    async def close(self):
+    @override
+    async def close(self) -> None:
         """Called when the bot is shutting down."""
         logger.info("Bot shutting down, disconnecting from all voice channels...")
         await voice_service.disconnect_all()
@@ -103,6 +106,7 @@ class SoundCommands(commands.Cog):
     """Slash commands for sound management (CRUD)."""
 
     def __init__(self, bot: SoundBot):
+        super().__init__()
         self.bot = bot
 
     @app_commands.command(name="add")
@@ -123,7 +127,7 @@ class SoundCommands(commands.Cog):
         overwrite: bool = False,
     ):
         """Add a new sound from a URL."""
-        await interaction.response.defer(thinking=True)
+        _ = _ = await interaction.response.defer(thinking=True)
 
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
@@ -133,10 +137,14 @@ class SoundCommands(commands.Cog):
         end_seconds = parse_timestamp(end) if end else None
 
         if start is not None and start_seconds is None:
-            await interaction.followup.send(f"❌ Invalid start time: '{start}'. Use seconds (90) or MM:SS (1:30).")
+            _ = await interaction.followup.send(
+                f"❌ Invalid start time: '{start}'. Use seconds (90) or MM:SS (1:30)."
+            )
             return
         if end is not None and end_seconds is None:
-            await interaction.followup.send(f"❌ Invalid end time: '{end}'. Use seconds (90) or MM:SS (1:30).")
+            _ = await interaction.followup.send(
+                f"❌ Invalid end time: '{end}'. Use seconds (90) or MM:SS (1:30)."
+            )
             return
 
         logger.info(
@@ -152,7 +160,7 @@ class SoundCommands(commands.Cog):
         )
 
         emoji = "✅" if result.success else "❌"
-        await interaction.followup.send(f"{emoji} {result.full_message()}")
+        _ = await interaction.followup.send(f"{emoji} {result.full_message()}")
 
     @app_commands.command(name="delete")
     @app_commands.describe(name="Name of the sound to delete")
@@ -162,20 +170,20 @@ class SoundCommands(commands.Cog):
         name = strip_command_prefix(name)
         result = await sound_service.delete_sound(name)
         emoji = "✅" if result.success else "❌"
-        await interaction.response.send_message(f"{emoji} {result.message}")
+        _ = await interaction.response.send_message(f"{emoji} {result.message}")
 
     @app_commands.command(name="redownload")
     @app_commands.describe(name="Name of the sound to re-download")
     async def redownload_sound(self, interaction: Interaction, name: str):
         """Re-download a sound from its original source URL."""
-        await interaction.response.defer(thinking=True)
+        _ = await interaction.response.defer(thinking=True)
 
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
         result = await sound_service.redownload_sound(name)
 
         emoji = "✅" if result.success else "❌"
-        await interaction.followup.send(f"{emoji} {result.full_message()}")
+        _ = await interaction.followup.send(f"{emoji} {result.full_message()}")
 
     @app_commands.command(name="rename")
     @app_commands.describe(
@@ -194,7 +202,7 @@ class SoundCommands(commands.Cog):
         new_name = strip_command_prefix(new_name)
         result = await sound_service.rename_sound(old_name, new_name)
         emoji = "✅" if result.success else "❌"
-        await interaction.response.send_message(f"{emoji} {result.message}")
+        _ = await interaction.response.send_message(f"{emoji} {result.message}")
 
     @app_commands.command(name="trim")
     @app_commands.describe(
@@ -210,7 +218,7 @@ class SoundCommands(commands.Cog):
         end: Optional[str] = None,
     ):
         """Set new start/end times for a sound."""
-        await interaction.response.defer(thinking=True)
+        _ = await interaction.response.defer(thinking=True)
 
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
@@ -220,10 +228,14 @@ class SoundCommands(commands.Cog):
         end_seconds = parse_timestamp(end) if end else None
 
         if start is not None and start_seconds is None:
-            await interaction.followup.send(f"❌ Invalid start time format: '{start}'. Use seconds (90) or MM:SS (1:30).")
+            _ = await interaction.followup.send(
+                f"❌ Invalid start time format: '{start}'. Use seconds (90) or MM:SS (1:30)."
+            )
             return
         if end is not None and end_seconds is None:
-            await interaction.followup.send(f"❌ Invalid end time format: '{end}'. Use seconds (90) or MM:SS (1:30).")
+            _ = await interaction.followup.send(
+                f"❌ Invalid end time format: '{end}'. Use seconds (90) or MM:SS (1:30)."
+            )
             return
 
         result = await sound_service.edit_timestamps(
@@ -233,7 +245,7 @@ class SoundCommands(commands.Cog):
         )
 
         emoji = "✅" if result.success else "❌"
-        await interaction.followup.send(f"{emoji} {result.full_message()}")
+        _ = await interaction.followup.send(f"{emoji} {result.full_message()}")
 
     @app_commands.command(name="adjust")
     @app_commands.describe(
@@ -249,7 +261,7 @@ class SoundCommands(commands.Cog):
         end_offset: Optional[float] = None,
     ):
         """Adjust start/end times relatively."""
-        await interaction.response.defer(thinking=True)
+        _ = await interaction.response.defer(thinking=True)
 
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
@@ -261,7 +273,7 @@ class SoundCommands(commands.Cog):
         )
 
         emoji = "✅" if result.success else "❌"
-        await interaction.followup.send(f"{emoji} {result.full_message()}")
+        _ = await interaction.followup.send(f"{emoji} {result.full_message()}")
 
     @app_commands.command(name="volume")
     @app_commands.describe(
@@ -284,7 +296,7 @@ class SoundCommands(commands.Cog):
         amount: int = 1,
     ):
         """Adjust volume for a sound. Each notch is a noticeable change."""
-        await interaction.response.defer(thinking=True)
+        _ = await interaction.response.defer(thinking=True)
 
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
@@ -292,7 +304,7 @@ class SoundCommands(commands.Cog):
         # Get current sound to calculate new volume
         sound = sound_service.get_sound(name)
         if not sound:
-            await interaction.followup.send(f"❌ Sound '{name}' not found")
+            _ = await interaction.followup.send(f"❌ Sound '{name}' not found")
             return
 
         # Calculate new volume_adjust
@@ -303,13 +315,13 @@ class SoundCommands(commands.Cog):
         elif adjustment == "up":
             new_volume = sound.volume_adjust + abs(amount)
         else:
-            await interaction.followup.send(f"❌ Unknown adjustment: {adjustment}")
+            _ = await interaction.followup.send(f"❌ Unknown adjustment: {adjustment}")
             return
 
         result = await sound_service.set_volume(name=name, volume_adjust=new_volume)
 
         emoji = "✅" if result.success else "❌"
-        await interaction.followup.send(f"{emoji} {result.full_message()}")
+        _ = await interaction.followup.send(f"{emoji} {result.full_message()}")
 
     @app_commands.command(name="info")
     @app_commands.describe(name="Name of the sound")
@@ -319,17 +331,17 @@ class SoundCommands(commands.Cog):
         name = strip_command_prefix(name)
         sound = sound_service.get_sound(name)
         if not sound:
-            await interaction.response.send_message(f"❌ Sound '{name}' not found")
+            _ = await interaction.response.send_message(f"❌ Sound '{name}' not found")
             return
 
         embed = discord.Embed(title=f"🔊 {name}", color=discord.Color.blue())
 
         if sound.source_title:
-            embed.add_field(name="Title", value=sound.source_title, inline=False)
+            _ = embed.add_field(name="Title", value=sound.source_title, inline=False)
         if sound.source_url:
-            embed.add_field(name="Source", value=sound.source_url, inline=False)
+            _ = embed.add_field(name="Source", value=sound.source_url, inline=False)
         if sound.source_duration:
-            embed.add_field(
+            _ = embed.add_field(
                 name="Original Duration",
                 value=f"{sound.source_duration:.1f}s",
                 inline=True,
@@ -339,18 +351,18 @@ class SoundCommands(commands.Cog):
         ts = sound.timestamps
         if ts.start or ts.end:
             ts_str = f"{ts.start or 0:.1f}s - {ts.end or 'end'}s"
-            embed.add_field(name="Trim", value=ts_str, inline=True)
+            _ = embed.add_field(name="Trim", value=ts_str, inline=True)
 
-        embed.add_field(name="Volume", value=sound.volume_display, inline=True)
-        embed.add_field(
+        _ = embed.add_field(name="Volume", value=sound.volume_display, inline=True)
+        _ = embed.add_field(
             name="Discord Plays",
             value=str(sound.discord.plays),
             inline=True,
         )
 
-        embed.set_footer(text=f"Created: {sound.created.strftime('%Y-%m-%d')}")
+        _ = embed.set_footer(text=f"Created: {sound.created.strftime('%Y-%m-%d')}")
 
-        await interaction.response.send_message(embed=embed)
+        _ = await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="sounds")
     async def sounds(self, interaction: Interaction):
@@ -362,17 +374,17 @@ class SoundCommands(commands.Cog):
             color=discord.Color.blue(),
             url=f"https://{settings.web_ui_url}",
         )
-        embed.add_field(
+        _ = embed.add_field(
             name="Web UI",
             value=f"[{settings.web_ui_url}](https://{settings.web_ui_url})",
             inline=False,
         )
-        embed.add_field(
+        _ = embed.add_field(
             name="Tip",
             value="Use `/search <query>` to search from Discord or `/list` to see all sounds",
             inline=False,
         )
-        await interaction.response.send_message(embed=embed)
+        _ = await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="search")
     @app_commands.describe(query="Search term")
@@ -384,7 +396,7 @@ class SoundCommands(commands.Cog):
         """Search for sounds."""
         results = sound_service.search_sounds(query)
         if not results:
-            await interaction.response.send_message(
+            _ = await interaction.response.send_message(
                 f"❌ No sounds matching '{query}'"
             )
             return
@@ -401,16 +413,16 @@ class SoundCommands(commands.Cog):
         )
 
         if len(chunks) > 1:
-            embed.set_footer(text=f"Showing first 50 of {len(names)}")
+            _ = embed.set_footer(text=f"Showing first 50 of {len(names)}")
 
-        await interaction.response.send_message(embed=embed)
+        _ = await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="list")
     async def list_sounds(self, interaction: Interaction):
         """List all sounds (may send multiple messages)."""
         names = sorted(sound_service.list_sounds().keys())
         if not names:
-            await interaction.response.send_message(
+            _ = await interaction.response.send_message(
                 "No sounds yet! Use /add to add some."
             )
             return
@@ -426,19 +438,19 @@ class SoundCommands(commands.Cog):
         )
 
         if len(chunks) > 1:
-            embed.set_footer(text=f"Page 1 of {len(chunks)}")
+            _ = embed.set_footer(text=f"Page 1 of {len(chunks)}")
 
-        await interaction.response.send_message(embed=embed)
+        _ = await interaction.response.send_message(embed=embed)
 
         # Send remaining chunks as follow-up messages
         for i, chunk in enumerate(chunks[1:], start=2):
             embed = discord.Embed(
-                title=f"🔊 All Sounds (continued)",
+                title="🔊 All Sounds (continued)",
                 description=", ".join(chunk),
                 color=discord.Color.blue(),
             )
-            embed.set_footer(text=f"Page {i} of {len(chunks)}")
-            await interaction.followup.send(embed=embed)
+            _ = embed.set_footer(text=f"Page {i} of {len(chunks)}")
+            _ = await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="random")
     async def random_sound(self, interaction: Interaction):
@@ -446,7 +458,7 @@ class SoundCommands(commands.Cog):
         # Get all sounds
         all_sounds = sound_service.list_sounds()
         if not all_sounds:
-            await interaction.response.send_message("❌ No sounds available")
+            _ = await interaction.response.send_message("❌ No sounds available")
             return
 
         # Filter to sounds under 2 minutes (120 seconds)
@@ -470,7 +482,7 @@ class SoundCommands(commands.Cog):
                 eligible.append(name)
 
         if not eligible:
-            await interaction.response.send_message(
+            _ = await interaction.response.send_message(
                 "❌ No sounds under 2 minutes available"
             )
             return
@@ -479,13 +491,14 @@ class SoundCommands(commands.Cog):
         name = random.choice(eligible)
         audio_path = sound_service.get_audio_path(name)
         if not audio_path:
-            await interaction.response.send_message(f"❌ Sound '{name}' not found")
+            _ = await interaction.response.send_message(f"❌ Sound '{name}' not found")
             return
 
         # Get duration for display
         duration = sound_service.get_sound_duration(name)
 
         # Play it
+        assert interaction.guild is not None  # Commands only work in guilds
         member = (
             interaction.guild.get_member(interaction.user.id)
             if interaction.guild
@@ -496,7 +509,7 @@ class SoundCommands(commands.Cog):
         )
 
         emoji = "🎲" if success else "❌"
-        await interaction.response.send_message(f"{emoji} {message}")
+        _ = await interaction.response.send_message(f"{emoji} {message}")
 
     @app_commands.command(name="play")
     @app_commands.describe(
@@ -512,17 +525,18 @@ class SoundCommands(commands.Cog):
         end: Optional[float] = None,
     ):
         """Download and play audio from a URL without saving it."""
-        await interaction.response.defer(thinking=True)
+        _ = await interaction.response.defer(thinking=True)
 
         # Download to temp directory
         download_result = await ytdlp_service.download_temp(url)
         if not download_result.success:
-            await interaction.followup.send(
+            _ = await interaction.followup.send(
                 f"❌ Download failed: {download_result.error}"
             )
             return
 
         # Get temp directory for cleanup
+        assert download_result.original_file is not None  # Set when success is True
         temp_dir = download_result.original_file.parent
 
         # Process audio
@@ -535,7 +549,7 @@ class SoundCommands(commands.Cog):
         )
 
         if not audio_result.success:
-            await interaction.followup.send(
+            _ = await interaction.followup.send(
                 f"❌ Audio processing failed: {audio_result.error}"
             )
             # Clean up temp directory on failure
@@ -546,6 +560,7 @@ class SoundCommands(commands.Cog):
             return
 
         # Play it
+        assert interaction.guild is not None  # Commands only work in guilds
         member = (
             interaction.guild.get_member(interaction.user.id)
             if interaction.guild
@@ -575,7 +590,7 @@ class SoundCommands(commands.Cog):
             msg = f"🎵 {message}"
             if timing_str:
                 msg += f"\n⏱️ {timing_str}"
-            await interaction.followup.send(msg)
+            _ = await interaction.followup.send(msg)
 
             # Schedule cleanup after playback (give it time to start playing)
             async def cleanup_temp_dir():
@@ -587,9 +602,9 @@ class SoundCommands(commands.Cog):
                 except Exception as e:
                     logger.warning(f"Failed to cleanup temp directory {temp_dir}: {e}")
 
-            asyncio.create_task(cleanup_temp_dir())
+            _ = asyncio.create_task(cleanup_temp_dir())
         else:
-            await interaction.followup.send(f"❌ {message}")
+            _ = await interaction.followup.send(f"❌ {message}")
             # Clean up temp directory on failure
             try:
                 shutil.rmtree(temp_dir)
@@ -601,6 +616,7 @@ class QueueCog(commands.Cog):
     """Commands for queue management."""
 
     def __init__(self, bot: SoundBot):
+        super().__init__()
         self.bot = bot
 
     @app_commands.command(name="playnext")
@@ -618,15 +634,19 @@ class QueueCog(commands.Cog):
                 name = matches[0][0]
             elif len(matches) > 1:
                 names = [n for n, _ in matches[:5]]
-                await interaction.response.send_message(
+                _ = await interaction.response.send_message(
                     f"❌ Multiple matches: {', '.join(names)}"
                     + (" ..." if len(matches) > 5 else "")
                 )
                 return
             else:
-                await interaction.response.send_message(f"❌ Sound '{name}' not found")
+                _ = await interaction.response.send_message(
+                    f"❌ Sound '{name}' not found"
+                )
                 return
 
+        assert interaction.guild is not None  # Commands only work in guilds
+        assert audio_path is not None  # Checked above with early returns
         member = (
             interaction.guild.get_member(interaction.user.id)
             if interaction.guild
@@ -643,7 +663,7 @@ class QueueCog(commands.Cog):
         )
 
         emoji = "⏭️" if success else "❌"
-        await interaction.response.send_message(f"{emoji} {message}")
+        _ = await interaction.response.send_message(f"{emoji} {message}")
 
     @app_commands.command(name="playnow")
     @app_commands.describe(name="Name of the sound")
@@ -660,15 +680,19 @@ class QueueCog(commands.Cog):
                 name = matches[0][0]
             elif len(matches) > 1:
                 names = [n for n, _ in matches[:5]]
-                await interaction.response.send_message(
+                _ = await interaction.response.send_message(
                     f"❌ Multiple matches: {', '.join(names)}"
                     + (" ..." if len(matches) > 5 else "")
                 )
                 return
             else:
-                await interaction.response.send_message(f"❌ Sound '{name}' not found")
+                _ = await interaction.response.send_message(
+                    f"❌ Sound '{name}' not found"
+                )
                 return
 
+        assert interaction.guild is not None  # Commands only work in guilds
+        assert audio_path is not None  # Checked above with early returns
         member = (
             interaction.guild.get_member(interaction.user.id)
             if interaction.guild
@@ -684,13 +708,13 @@ class QueueCog(commands.Cog):
         )
 
         emoji = "🎵" if success else "❌"
-        await interaction.response.send_message(f"{emoji} {message}")
+        _ = await interaction.response.send_message(f"{emoji} {message}")
 
     @app_commands.command(name="queue")
     async def show_queue(self, interaction: Interaction):
         """Show the current playback queue."""
         if not interaction.guild:
-            await interaction.response.send_message(
+            _ = await interaction.response.send_message(
                 "❌ This command must be used in a server"
             )
             return
@@ -700,7 +724,7 @@ class QueueCog(commands.Cog):
         is_paused = voice_service.is_paused(interaction.guild.id)
 
         if not current and not queue:
-            await interaction.response.send_message("📭 Queue is empty")
+            _ = await interaction.response.send_message("📭 Queue is empty")
             return
 
         embed = discord.Embed(title="🎵 Playback Queue", color=discord.Color.blue())
@@ -708,7 +732,7 @@ class QueueCog(commands.Cog):
         # Current playing
         if current:
             status = "⏸️ Paused" if is_paused else "▶️ Now Playing"
-            embed.add_field(
+            _ = embed.add_field(
                 name=status,
                 value=f"**{current.name}**",
                 inline=False,
@@ -721,44 +745,44 @@ class QueueCog(commands.Cog):
             )
             if len(queue) > 10:
                 queue_text += f"\n... and {len(queue) - 10} more"
-            embed.add_field(name="Up Next", value=queue_text, inline=False)
+            _ = embed.add_field(name="Up Next", value=queue_text, inline=False)
         else:
-            embed.add_field(name="Up Next", value="Nothing queued", inline=False)
+            _ = embed.add_field(name="Up Next", value="Nothing queued", inline=False)
 
-        await interaction.response.send_message(embed=embed)
+        _ = await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="skip")
     async def skip_sound(self, interaction: Interaction):
         """Skip the current sound."""
         if not interaction.guild:
-            await interaction.response.send_message(
+            _ = await interaction.response.send_message(
                 "❌ This command must be used in a server"
             )
             return
 
         success, message = await voice_service.skip(interaction.guild.id)
         emoji = "⏭️" if success else "❌"
-        await interaction.response.send_message(f"{emoji} {message}")
+        _ = await interaction.response.send_message(f"{emoji} {message}")
 
     @app_commands.command(name="stop")
     async def stop_playback(self, interaction: Interaction):
         """Stop playback and clear the queue."""
         if not interaction.guild:
-            await interaction.response.send_message(
+            _ = await interaction.response.send_message(
                 "❌ This command must be used in a server"
             )
             return
 
         success, message = await voice_service.stop(interaction.guild.id)
         emoji = "⏹️" if success else "❌"
-        await interaction.response.send_message(f"{emoji} {message}")
+        _ = await interaction.response.send_message(f"{emoji} {message}")
 
     @app_commands.command(name="loop")
     @app_commands.describe(name="Name of the sound to loop")
     async def loop_sound(self, interaction: Interaction, name: str):
         """Loop a sound until stopped."""
         if not interaction.guild:
-            await interaction.response.send_message(
+            _ = await interaction.response.send_message(
                 "❌ This command must be used in a server"
             )
             return
@@ -767,7 +791,7 @@ class QueueCog(commands.Cog):
         name = strip_command_prefix(name)
         audio_path = sound_service.get_audio_path(name)
         if not audio_path:
-            await interaction.response.send_message(f"❌ Sound '{name}' not found")
+            _ = await interaction.response.send_message(f"❌ Sound '{name}' not found")
             return
 
         # Get duration for display
@@ -785,57 +809,63 @@ class QueueCog(commands.Cog):
         )
 
         emoji = "🔁" if success else "❌"
-        await interaction.response.send_message(f"{emoji} {message}")
+        _ = await interaction.response.send_message(f"{emoji} {message}")
 
     @app_commands.command(name="pause")
     async def pause_playback(self, interaction: Interaction):
         """Pause playback."""
         if not interaction.guild:
-            await interaction.response.send_message(
+            _ = await interaction.response.send_message(
                 "❌ This command must be used in a server"
             )
             return
 
         success, message = await voice_service.pause(interaction.guild.id)
         emoji = "⏸️" if success else "❌"
-        await interaction.response.send_message(f"{emoji} {message}")
+        _ = await interaction.response.send_message(f"{emoji} {message}")
 
     @app_commands.command(name="resume")
     async def resume_playback(self, interaction: Interaction):
         """Resume playback."""
         if not interaction.guild:
-            await interaction.response.send_message(
+            _ = await interaction.response.send_message(
                 "❌ This command must be used in a server"
             )
             return
 
         success, message = await voice_service.resume(interaction.guild.id)
         emoji = "▶️" if success else "❌"
-        await interaction.response.send_message(f"{emoji} {message}")
+        _ = await interaction.response.send_message(f"{emoji} {message}")
 
     @app_commands.command(name="leave")
     async def leave_channel(self, interaction: Interaction):
         """Leave the voice channel."""
         if not interaction.guild:
-            await interaction.response.send_message(
+            _ = await interaction.response.send_message(
                 "❌ This command must be used in a server"
             )
             return
 
         await voice_service.disconnect(interaction.guild.id)
-        await interaction.response.send_message("👋 Left voice channel")
+        _ = await interaction.response.send_message("👋 Left voice channel")
 
 
 class PlaybackCog(commands.Cog):
     """Text commands for sound playback and file uploads."""
 
     def __init__(self, bot: SoundBot):
+        super().__init__()
         self.bot = bot
         # Get all configured prefixes
         self.prefixes = settings.twitch_command_prefixes or ["!"]
 
     @commands.command(name="add")
-    async def add_sound_file(self, ctx: commands.Context, name: str, source_url: Optional[str] = None):
+    async def add_sound_file(
+        self,
+        ctx: commands.Context[SoundBot],
+        name: str,
+        source_url: Optional[str] = None,
+    ):
         """
         Add a sound from an attached audio file.
 
@@ -844,29 +874,46 @@ class PlaybackCog(commands.Cog):
         """
         # Check for attachment
         if not ctx.message.attachments:
-            await ctx.send("❌ Please attach an audio file to your message.\nUsage: `!add soundname` with an audio file attached.")
+            _ = await ctx.send(
+                "❌ Please attach an audio file to your message.\nUsage: `!add soundname` with an audio file attached."
+            )
             return
 
         attachment = ctx.message.attachments[0]
 
         # Validate it looks like an audio file
-        audio_extensions = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".opus", ".webm", ".mp4", ".mkv"}
+        audio_extensions = {
+            ".mp3",
+            ".wav",
+            ".ogg",
+            ".m4a",
+            ".flac",
+            ".aac",
+            ".opus",
+            ".webm",
+            ".mp4",
+            ".mkv",
+        }
         ext = Path(attachment.filename).suffix.lower()
         if ext not in audio_extensions:
-            await ctx.send(f"❌ File doesn't appear to be audio. Supported formats: {', '.join(sorted(audio_extensions))}")
+            _ = await ctx.send(
+                f"❌ File doesn't appear to be audio. Supported formats: {', '.join(sorted(audio_extensions))}"
+            )
             return
 
         # Size limit (e.g., 25MB)
         max_size = 25 * 1024 * 1024
         if attachment.size > max_size:
-            await ctx.send(f"❌ File too large. Maximum size is 25MB.")
+            _ = await ctx.send("❌ File too large. Maximum size is 25MB.")
             return
 
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
 
         # Show progress
-        progress_msg = await ctx.send(f"⏳ Processing `{name}` from uploaded file...")
+        progress_msg = _ = await ctx.send(
+            f"⏳ Processing `{name}` from uploaded file..."
+        )
 
         try:
             # Download the attachment
@@ -882,50 +929,55 @@ class PlaybackCog(commands.Cog):
             )
 
             emoji = "✅" if result.success else "❌"
-            await progress_msg.edit(content=f"{emoji} {result.full_message()}")
+            _ = await progress_msg.edit(content=f"{emoji} {result.full_message()}")
 
         except Exception as e:
             logger.error(f"Error adding sound from file: {e}")
-            await progress_msg.edit(content=f"❌ Error: {e}")
+            _ = await progress_msg.edit(content=f"❌ Error: {e}")
 
     @commands.command(name="stop")
-    async def stop_playback(self, ctx: commands.Context):
+    async def stop_playback(self, ctx: commands.Context[SoundBot]):
         """Stop the currently playing sound."""
+        assert ctx.guild is not None  # Text commands only work in guilds
         success, _ = await voice_service.stop(ctx.guild.id)
         if success:
-            await ctx.send("⏹️ Stopped playback")
+            _ = await ctx.send("⏹️ Stopped playback")
         else:
-            await ctx.send("❌ Nothing is playing")
+            _ = await ctx.send("❌ Nothing is playing")
 
     @commands.command(name="skip")
-    async def skip_sound(self, ctx: commands.Context):
+    async def skip_sound(self, ctx: commands.Context[SoundBot]):
         """Skip the current sound."""
+        assert ctx.guild is not None  # Text commands only work in guilds
         success, message = await voice_service.skip(ctx.guild.id)
         emoji = "⏭️" if success else "❌"
-        await ctx.send(f"{emoji} {message}")
+        _ = await ctx.send(f"{emoji} {message}")
 
     @commands.command(name="pause")
-    async def pause_playback(self, ctx: commands.Context):
+    async def pause_playback(self, ctx: commands.Context[SoundBot]):
         """Pause playback."""
+        assert ctx.guild is not None  # Text commands only work in guilds
         success, message = await voice_service.pause(ctx.guild.id)
         emoji = "⏸️" if success else "❌"
-        await ctx.send(f"{emoji} {message}")
+        _ = await ctx.send(f"{emoji} {message}")
 
     @commands.command(name="resume", aliases=["unpause"])
-    async def resume_playback(self, ctx: commands.Context):
+    async def resume_playback(self, ctx: commands.Context[SoundBot]):
         """Resume playback."""
+        assert ctx.guild is not None  # Text commands only work in guilds
         success, message = await voice_service.resume(ctx.guild.id)
         emoji = "▶️" if success else "❌"
-        await ctx.send(f"{emoji} {message}")
+        _ = await ctx.send(f"{emoji} {message}")
 
     @commands.command(name="queue", aliases=["q"])
-    async def show_queue(self, ctx: commands.Context):
+    async def show_queue(self, ctx: commands.Context[SoundBot]):
         """Show the queue."""
+        assert ctx.guild is not None  # Text commands only work in guilds
         current = voice_service.get_current(ctx.guild.id)
         queue = voice_service.get_queue(ctx.guild.id)
 
         if not current and not queue:
-            await ctx.send("📭 Queue is empty")
+            _ = await ctx.send("📭 Queue is empty")
             return
 
         parts = []
@@ -939,16 +991,19 @@ class PlaybackCog(commands.Cog):
             if len(queue) > 5:
                 parts.append(f"... +{len(queue) - 5} more")
 
-        await ctx.send("\n".join(parts))
+        _ = await ctx.send("\n".join(parts))
 
     @commands.command(name="leave")
-    async def leave_voice(self, ctx: commands.Context):
+    async def leave_voice(self, ctx: commands.Context[SoundBot]):
         """Leave the voice channel."""
+        assert ctx.guild is not None  # Text commands only work in guilds
         await voice_service.disconnect(ctx.guild.id)
-        await ctx.send("👋 Left voice channel")
+        _ = await ctx.send("👋 Left voice channel")
 
     @commands.command(name="sounds")
-    async def quick_list(self, ctx: commands.Context, *, search: Optional[str] = None):
+    async def quick_list(
+        self, ctx: commands.Context[SoundBot], *, search: Optional[str] = None
+    ):
         """Quick list of sounds."""
         if search:
             results = sound_service.search_sounds(search)
@@ -957,7 +1012,7 @@ class PlaybackCog(commands.Cog):
             names = sorted(sound_service.list_sounds().keys())
 
         if not names:
-            await ctx.send("No sounds found.")
+            _ = await ctx.send("No sounds found.")
             return
 
         # Show first 30 in a compact format
@@ -965,10 +1020,10 @@ class PlaybackCog(commands.Cog):
         msg = f"**Sounds:** {', '.join(display)}"
         if len(names) > 30:
             msg += f" (+{len(names) - 30} more)"
-        await ctx.send(msg)
+        _ = await ctx.send(msg)
 
     @commands.command(name="next", aliases=["playnext"])
-    async def play_next(self, ctx: commands.Context, *, sound_name: str):
+    async def play_next(self, ctx: commands.Context[SoundBot], *, sound_name: str):
         """Add a sound to play next in the queue."""
         # Strip any command prefix from the name
         sound_name = strip_command_prefix(sound_name)
@@ -981,15 +1036,17 @@ class PlaybackCog(commands.Cog):
                 sound_name = matches[0][0]
             elif len(matches) > 1:
                 names = [n for n, _ in matches[:5]]
-                await ctx.send(
+                _ = await ctx.send(
                     f"Multiple matches: {', '.join(names)}"
                     + (" ..." if len(matches) > 5 else "")
                 )
                 return
             else:
-                await ctx.send(f"❌ Sound '{sound_name}' not found")
+                _ = await ctx.send(f"❌ Sound '{sound_name}' not found")
                 return
 
+        assert ctx.guild is not None  # Text commands only work in guilds
+        assert audio_path is not None  # Checked above with early returns
         member = ctx.guild.get_member(ctx.author.id)
         duration = sound_service.get_sound_duration(sound_name)
         success, message = await voice_service.queue_sound(
@@ -1006,10 +1063,10 @@ class PlaybackCog(commands.Cog):
             if sound:
                 sound.discord.plays += 1
                 sound.discord.last_played = datetime.now()
-                state.save()
-            await ctx.send(f"⏭️ {message}")
+                _ = state.save()
+            _ = await ctx.send(f"⏭️ {message}")
         else:
-            await ctx.send(f"❌ {message}")
+            _ = await ctx.send(f"❌ {message}")
 
     def _parse_sound_commands(self, content: str) -> list[str]:
         """Parse multiple sound commands from a message.
@@ -1125,6 +1182,9 @@ class PlaybackCog(commands.Cog):
                     # Not found, silently ignore (could be a command for another bot)
                     continue
 
+            # Audio path must be set at this point
+            assert audio_path is not None  # Checked above with continue statements
+
             # Get duration for display
             duration = sound_service.get_sound_duration(resolved_name)
 
@@ -1160,25 +1220,26 @@ class PlaybackCog(commands.Cog):
 
         # Save state if we played any sounds
         if played_sounds:
-            state.save()
+            _ = state.save()
 
         # Send response
         if played_sounds:
             if len(played_sounds) == 1:
-                await message.channel.send(f"🔊 Playing **{played_sounds[0]}**")
+                _ = await message.channel.send(f"🔊 Playing **{played_sounds[0]}**")
             else:
-                await message.channel.send(
+                _ = await message.channel.send(
                     f"🔊 Queued {len(played_sounds)} sounds: {', '.join(played_sounds)}"
                 )
 
         if errors:
-            await message.channel.send(f"❌ Errors: {'; '.join(errors)}")
+            _ = await message.channel.send(f"❌ Errors: {'; '.join(errors)}")
 
 
 class UserSettingsCog(commands.Cog):
     """Commands for user settings like entrance/exit sounds."""
 
     def __init__(self, bot: SoundBot):
+        super().__init__()
         self.bot = bot
 
     @app_commands.command(name="entrance")
@@ -1197,11 +1258,11 @@ class UserSettingsCog(commands.Cog):
             # Show current entrance sound
             current = state.entrances.get(user_id)
             if current:
-                await interaction.response.send_message(
+                _ = await interaction.response.send_message(
                     f"🚪 Your entrance sound is **{current}**"
                 )
             else:
-                await interaction.response.send_message(
+                _ = await interaction.response.send_message(
                     "🚪 You don't have an entrance sound set. Use `/entrance <sound_name>` to set one."
                 )
             return
@@ -1215,21 +1276,21 @@ class UserSettingsCog(commands.Cog):
                 sound_name = matches[0][0]
             elif len(matches) > 1:
                 names = [n for n, _ in matches[:5]]
-                await interaction.response.send_message(
+                _ = await interaction.response.send_message(
                     f"❌ Multiple matches: {', '.join(names)}"
                     + (" ..." if len(matches) > 5 else "")
                 )
                 return
             else:
-                await interaction.response.send_message(
+                _ = await interaction.response.send_message(
                     f"❌ Sound '{sound_name}' not found"
                 )
                 return
 
         state.entrances[user_id] = sound_name
-        state.save()
+        _ = state.save()
 
-        await interaction.response.send_message(
+        _ = await interaction.response.send_message(
             f"✅ Set your entrance sound to **{sound_name}**"
         )
 
@@ -1249,11 +1310,11 @@ class UserSettingsCog(commands.Cog):
             # Show current exit sound
             current = state.exits.get(user_id)
             if current:
-                await interaction.response.send_message(
+                _ = await interaction.response.send_message(
                     f"🚪 Your exit sound is **{current}**"
                 )
             else:
-                await interaction.response.send_message(
+                _ = await interaction.response.send_message(
                     "🚪 You don't have an exit sound set. Use `/exit <sound_name>` to set one."
                 )
             return
@@ -1267,21 +1328,21 @@ class UserSettingsCog(commands.Cog):
                 sound_name = matches[0][0]
             elif len(matches) > 1:
                 names = [n for n, _ in matches[:5]]
-                await interaction.response.send_message(
+                _ = await interaction.response.send_message(
                     f"❌ Multiple matches: {', '.join(names)}"
                     + (" ..." if len(matches) > 5 else "")
                 )
                 return
             else:
-                await interaction.response.send_message(
+                _ = await interaction.response.send_message(
                     f"❌ Sound '{sound_name}' not found"
                 )
                 return
 
         state.exits[user_id] = sound_name
-        state.save()
+        _ = state.save()
 
-        await interaction.response.send_message(
+        _ = await interaction.response.send_message(
             f"✅ Set your exit sound to **{sound_name}**"
         )
 
@@ -1291,10 +1352,12 @@ class UserSettingsCog(commands.Cog):
         user_id = str(interaction.user.id)
         if user_id in state.entrances:
             del state.entrances[user_id]
-            state.save()
-            await interaction.response.send_message("✅ Cleared your entrance sound")
+            _ = state.save()
+            _ = await interaction.response.send_message(
+                "✅ Cleared your entrance sound"
+            )
         else:
-            await interaction.response.send_message(
+            _ = await interaction.response.send_message(
                 "ℹ️ You don't have an entrance sound set"
             )
 
@@ -1304,10 +1367,10 @@ class UserSettingsCog(commands.Cog):
         user_id = str(interaction.user.id)
         if user_id in state.exits:
             del state.exits[user_id]
-            state.save()
-            await interaction.response.send_message("✅ Cleared your exit sound")
+            _ = state.save()
+            _ = await interaction.response.send_message("✅ Cleared your exit sound")
         else:
-            await interaction.response.send_message(
+            _ = await interaction.response.send_message(
                 "ℹ️ You don't have an exit sound set"
             )
 
@@ -1316,6 +1379,7 @@ class VoiceEventsCog(commands.Cog):
     """Handle voice channel events for entrance/exit sounds."""
 
     def __init__(self, bot: SoundBot):
+        super().__init__()
         self.bot = bot
         # Track recent plays to avoid spam
         self._recent_plays: dict[str, datetime] = {}
@@ -1385,9 +1449,11 @@ class VoiceEventsCog(commands.Cog):
                     self._mark_played(user_id)
                     duration = sound_service.get_sound_duration(sound_name)
                     # Play in the channel they joined
+                    # VocalGuildChannel includes StageChannel, but connect only accepts VoiceChannel
+                    assert isinstance(joined_channel, discord.VoiceChannel)
                     voice_client = await voice_service.connect(joined_channel)
                     if voice_client:
-                        await voice_service.queue_sound(
+                        _ = await voice_service.queue_sound(
                             member.guild,
                             audio_path,
                             sound_name,
@@ -1399,7 +1465,7 @@ class VoiceEventsCog(commands.Cog):
                         if sound:
                             sound.discord.plays += 1
                             sound.discord.last_played = datetime.now()
-                            state.save()
+                            _ = state.save()
 
         # Handle leave
         elif left_channel:
@@ -1412,9 +1478,11 @@ class VoiceEventsCog(commands.Cog):
                     # Play in the channel they left (if bot is there or others remain)
                     remaining_members = [m for m in left_channel.members if not m.bot]
                     if remaining_members:
+                        # VocalGuildChannel includes StageChannel, but connect only accepts VoiceChannel
+                        assert isinstance(left_channel, discord.VoiceChannel)
                         voice_client = await voice_service.connect(left_channel)
                         if voice_client:
-                            await voice_service.queue_sound(
+                            _ = await voice_service.queue_sound(
                                 member.guild,
                                 audio_path,
                                 sound_name,
@@ -1426,7 +1494,7 @@ class VoiceEventsCog(commands.Cog):
                             if sound:
                                 sound.discord.plays += 1
                                 sound.discord.last_played = datetime.now()
-                                state.save()
+                                _ = state.save()
 
 
 # Create the bot instance

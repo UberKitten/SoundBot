@@ -17,12 +17,12 @@ def main():
         "regenerate-audio",
         help="Regenerate trimmed audio files for all sounds",
     )
-    regen_parser.add_argument(
+    _ = regen_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would be regenerated without actually doing it",
     )
-    regen_parser.add_argument(
+    _ = regen_parser.add_argument(
         "--sound",
         type=str,
         help="Regenerate only a specific sound by name",
@@ -33,7 +33,7 @@ def main():
         "check-sounds",
         help="Check for sounds with missing audio files",
     )
-    check_parser.add_argument(
+    _ = check_parser.add_argument(
         "--remove",
         action="store_true",
         help="Remove broken entries from state (doesn't delete files)",

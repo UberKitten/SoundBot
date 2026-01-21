@@ -48,7 +48,7 @@ class GuildPlaybackState:
     current_started_at: Optional[datetime] = None  # When current item started playing
     is_paused: bool = False
     voice_client: Optional[discord.VoiceClient] = None
-    play_task: Optional[asyncio.Task] = None
+    play_task: Optional[asyncio.Task[None]] = None
     looping_item: Optional[QueueItem] = None  # Item currently being looped
 
 
@@ -56,6 +56,7 @@ class VoiceService:
     """Service for managing voice connections and audio playback."""
 
     def __init__(self):
+        super().__init__()
         # Track last activity per user per guild: {guild_id: {user_id: datetime}}
         self._user_activity: dict[int, dict[int, datetime]] = defaultdict(dict)
         # Playback state per guild
@@ -134,7 +135,7 @@ class VoiceService:
         best_channel = populated_channels[0][0]
         logger.debug(
             f"Selected channel: {best_channel.name} "
-            f"(members: {populated_channels[0][1]}, recent: {populated_channels[0][2]})"
+            + f"(members: {populated_channels[0][1]}, recent: {populated_channels[0][2]})"
         )
         return best_channel
 
@@ -240,10 +241,10 @@ class VoiceService:
         loop = asyncio.get_event_loop()
         done_event = asyncio.Event()
 
-        def after_play(error):
+        def after_play(error: Optional[Exception]) -> None:
             if error:
                 logger.error(f"Playback error: {error}")
-            loop.call_soon_threadsafe(done_event.set)
+            _ = loop.call_soon_threadsafe(done_event.set)
 
         # Play the audio
         try:
@@ -262,7 +263,7 @@ class VoiceService:
             voice_client.play(source, after=after_play)
 
             # Wait for playback to complete (or be stopped)
-            await done_event.wait()
+            _ = await done_event.wait()
 
             # Clear start time after playback
             state.current_started_at = None
@@ -323,7 +324,7 @@ class VoiceService:
             # If nothing is playing and no play task is active, start playing
             if state.current is None and not state.is_paused and not play_task_active:
                 # Start playback in a task so we don't block
-                state.play_task = asyncio.create_task(self._play_next(guild))
+                state.play_task = _ = asyncio.create_task(self._play_next(guild))
                 duration_str = f" {format_duration(duration)}" if duration else ""
                 return True, f"Playing **{name}**{duration_str}"
             else:
@@ -396,7 +397,7 @@ class VoiceService:
 
         # If nothing is playing now and no play task is active, start playback
         if state.current is None and not play_task_active:
-            state.play_task = asyncio.create_task(self._play_next(guild))
+            state.play_task = _ = asyncio.create_task(self._play_next(guild))
 
         duration_str = f" {format_duration(duration)}" if duration else ""
         return True, f"Playing **{name}**{duration_str} now"
@@ -482,7 +483,7 @@ class VoiceService:
         # If was paused but nothing playing, resume queue
         state.is_paused = False
         if state.queue:
-            asyncio.create_task(self._play_next(state.voice_client.guild))
+            _ = asyncio.create_task(self._play_next(state.voice_client.guild))
             return True, "Resumed queue playback"
 
         return False, "Nothing to resume"
@@ -523,7 +524,7 @@ class VoiceService:
             state.queue.append(item)
 
             # Start playback
-            state.play_task = asyncio.create_task(self._play_next(guild))
+            state.play_task = _ = asyncio.create_task(self._play_next(guild))
 
             duration_str = f" {format_duration(duration)}" if duration else ""
             return True, f"Looping **{name}**{duration_str}"

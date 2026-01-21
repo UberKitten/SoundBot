@@ -25,6 +25,7 @@ class WebSocketManager:
     """Manages WebSocket connections and broadcasts events."""
 
     def __init__(self):
+        super().__init__()
         self._connections: Set[WebSocket] = set()
 
     @property
@@ -41,7 +42,9 @@ class WebSocketManager:
     def disconnect(self, websocket: WebSocket):
         """Remove a WebSocket connection."""
         self._connections.discard(websocket)
-        logger.debug(f"WebSocket disconnected. Total connections: {self.connection_count}")
+        logger.debug(
+            f"WebSocket disconnected. Total connections: {self.connection_count}"
+        )
 
     async def broadcast(self, message: str):
         """Broadcast a message to all connected clients."""

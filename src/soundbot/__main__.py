@@ -23,7 +23,7 @@ if __name__ == "__main__":
     # Use uvloop on Unix platforms for better performance
     if sys.platform != "win32":
         try:
-            import uvloop
+            import uvloop  # type: ignore[import-not-found]
 
             uvloop.run(run())
         except ImportError:

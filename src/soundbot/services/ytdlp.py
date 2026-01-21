@@ -1,15 +1,15 @@
 """Service for downloading media with yt-dlp."""
 
 import asyncio
-from contextlib import contextmanager
 import json
 import logging
 import sys
 import tempfile
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, override
 
 from pydantic import BaseModel
 
@@ -23,7 +23,7 @@ _ytdlp_env: dict[str, str] | None = None
 @contextmanager
 def _skip_debugger_subprocess_patch():
     """Context manager to skip debugpy's subprocess argument patching.
-    
+
     When running under VS Code's Python debugger (debugpy), it patches
     subprocess calls to inject debugging into child Python processes.
     This breaks yt-dlp because the patched command doesn't work correctly.
@@ -31,6 +31,7 @@ def _skip_debugger_subprocess_patch():
     try:
         # Try to import pydevd's skip_subprocess_arg_patch
         from pydevd import skip_subprocess_arg_patch  # type: ignore[import-not-found]
+
         with skip_subprocess_arg_patch():
             yield
     except ImportError:
@@ -52,7 +53,9 @@ def _get_ytdlp_command() -> list[str]:
     # This file is in src/soundbot/services/ytdlp.py
     # The venv is at .venv/Scripts/python.exe (Windows) or .venv/bin/python (Unix)
     this_file = Path(__file__).resolve()
-    project_root = this_file.parent.parent.parent.parent  # Go up to src/, then project root
+    project_root = (
+        this_file.parent.parent.parent.parent
+    )  # Go up to src/, then project root
 
     import os
 
@@ -101,7 +104,7 @@ def _get_clean_env() -> dict[str, str]:
         "BUNDLED_DEBUGPY_PATH",  # VS Code debugpy
         "VSCODE_DEBUGPY_ADAPTER_ENDPOINTS",  # VS Code debugpy
     ]
-    
+
     removed = []
     for var in vars_to_remove:
         if var in env:
@@ -121,6 +124,7 @@ class StepTiming(BaseModel):
     step: str
     duration_seconds: float
 
+    @override
     def __str__(self) -> str:
         return f"{self.step}: {self.duration_seconds:.2f}s"
 
@@ -152,6 +156,7 @@ class YtdlpService:
     """Service for downloading and managing media with yt-dlp."""
 
     def __init__(self):
+        super().__init__()
         self._last_update: Optional[datetime] = None
         self._update_lock = asyncio.Lock()
 
@@ -173,17 +178,19 @@ class YtdlpService:
 
                 output = stdout.decode().strip()
                 stderr_text = stderr.decode().strip() if stderr else ""
-                
+
                 if stderr_text:
                     logger.warning(f"yt-dlp update stderr: {stderr_text}")
-                
+
                 if proc.returncode == 0:
                     self._last_update = datetime.now()
                     logger.debug(f"yt-dlp update: {output}")
                     return True, output
                 else:
                     error = stderr_text or "Unknown error"
-                    logger.error(f"Failed to update yt-dlp (code {proc.returncode}): {error}")
+                    logger.error(
+                        f"Failed to update yt-dlp (code {proc.returncode}): {error}"
+                    )
                     return False, error
             except Exception as e:
                 logger.error(f"Error updating yt-dlp: {e}")
@@ -301,7 +308,9 @@ class YtdlpService:
 
             # Save metadata to our standard location
             if metadata:
-                metadata_file.write_text(json.dumps(metadata, indent=2, default=str))
+                _ = metadata_file.write_text(
+                    json.dumps(metadata, indent=2, default=str)
+                )
                 logger.debug(f"Saved metadata to {metadata_file}")
 
             # Find the downloaded file - check what yt-dlp actually created

@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
 
-    token: str
+    token: str  # Loaded from .env or environment variables
 
     # Used for local command registration
     test_guild_ids: Optional[str] = None  # comma separated
@@ -28,4 +28,5 @@ class Settings(BaseSettings):
     audio_target_lufs: float = -20.0
 
 
-settings = Settings()
+# Type checker doesn't understand that pydantic_settings loads from env
+settings = Settings()  # type: ignore[call-arg]

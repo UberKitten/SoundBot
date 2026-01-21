@@ -15,7 +15,7 @@ class State(BaseModel):
     sounds: Dict[str, Sound] = {}
 
     def save(self):
-        Path(settings.state_file).write_text(
+        _ = Path(settings.state_file).write_text(
             self.model_dump_json(indent=2),
             encoding="utf-8",
         )

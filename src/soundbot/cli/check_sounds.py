@@ -18,7 +18,7 @@ def check_sounds(remove_broken: bool = False) -> None:
     """
     sounds_dir = Path(settings.sounds_folder)
 
-    state.load()
+    _ = state.load()
 
     missing = []
     valid = []
@@ -30,7 +30,7 @@ def check_sounds(remove_broken: bool = False) -> None:
         else:
             missing.append((name, sound.files.trimmed_audio, sound.source_url))
 
-    print(f"📊 Sound Status:")
+    print("📊 Sound Status:")
     print(f"   ✅ Valid: {len(valid)}")
     print(f"   ❌ Missing files: {len(missing)}")
     print()
@@ -47,7 +47,7 @@ def check_sounds(remove_broken: bool = False) -> None:
             for name, _, _ in missing:
                 del state.sounds[name]
                 print(f"   🗑️  Removed: {name}")
-            state.save()
+            _ = state.save()
             print(f"\n✅ Removed {len(missing)} broken entries from state.")
         else:
             print()

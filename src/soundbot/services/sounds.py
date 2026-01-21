@@ -1,6 +1,5 @@
 """Service for managing sounds - download, process, store, and retrieve."""
 
-import asyncio
 import logging
 import re
 import shutil
@@ -60,11 +59,12 @@ class SoundService:
     """Service for managing sounds."""
 
     def __init__(self):
+        super().__init__()
         self._update_callbacks: list[SoundUpdateCallback] = []
 
     def on_sound_update(self, callback: SoundUpdateCallback):
         """Register a callback to be called when sounds are updated.
-        
+
         The callback receives (sound_name, modified_timestamp, action).
         Action is one of: "add", "edit", "delete", "rename"
         """
@@ -171,6 +171,7 @@ class SoundService:
             )
 
         # Check what we got
+        assert download_result.original_file is not None  # Set when success is True
         probe = await ffmpeg_service.probe(download_result.original_file)
         if not probe or not probe.has_audio:
             shutil.rmtree(sound_dir)
@@ -254,7 +255,7 @@ class SoundService:
             sound.twitch.plays = old_twitch_plays
 
         state.sounds[name_lower] = sound
-        state.save()
+        _ = state.save()
 
         # Notify WebSocket clients of the update
         emit_action = "edit" if overwrite else "add"
@@ -339,7 +340,7 @@ class SoundService:
         # Write the file
         start_time = time.monotonic()
         try:
-            original_file.write_bytes(file_data)
+            _ = original_file.write_bytes(file_data)
             timings["File save"] = time.monotonic() - start_time
         except Exception as e:
             if sound_dir.exists():
@@ -410,7 +411,7 @@ class SoundService:
             sound.twitch.plays = old_twitch_plays
 
         state.sounds[name_lower] = sound
-        state.save()
+        _ = state.save()
 
         # Notify WebSocket clients of the update
         emit_action = "edit" if overwrite else "add"
@@ -514,7 +515,7 @@ class SoundService:
         # Update sound entry
         sound.timestamps = Timestamps(start=new_start, end=new_end)
         sound.modified = datetime.now()
-        state.save()
+        _ = state.save()
 
         # Notify WebSocket clients of the update
         self._emit_update(name_lower, sound.modified, "edit")
@@ -583,7 +584,7 @@ class SoundService:
         # Update sound entry
         sound.volume_adjust = volume_adjust
         sound.modified = datetime.now()
-        state.save()
+        _ = state.save()
 
         # Notify WebSocket clients of the update
         self._emit_update(name_lower, sound.modified, "edit")
@@ -609,7 +610,7 @@ class SoundService:
 
         # Remove from state
         del state.sounds[name_lower]
-        state.save()
+        _ = state.save()
 
         # Notify WebSocket clients of the deletion
         self._emit_update(name_lower, datetime.now(), "delete")
@@ -660,6 +661,7 @@ class SoundService:
                 )
 
             # Check what we got
+            assert download_result.original_file is not None  # Set when success is True
             probe = await ffmpeg_service.probe(download_result.original_file)
             if not probe or not probe.has_audio:
                 return OperationResult(
@@ -712,7 +714,7 @@ class SoundService:
 
             # Move new files to sound directory
             for item in temp_dir.iterdir():
-                shutil.move(str(item), str(sound_dir / item.name))
+                _ = shutil.move(str(item), str(sound_dir / item.name))
 
             # Update sound entry (preserve stats, timestamps, volume, created, added_by)
             sound.files = SoundFiles(
@@ -728,7 +730,7 @@ class SoundService:
             sound.source_duration = download_result.duration
             sound.modified = datetime.now()
 
-            state.save()
+            _ = state.save()
 
             # Notify WebSocket clients of the update
             self._emit_update(name_lower, sound.modified, "edit")
@@ -767,7 +769,7 @@ class SoundService:
         del state.sounds[old_lower]
         state.sounds[new_lower] = sound
         sound.modified = datetime.now()
-        state.save()
+        _ = state.save()
 
         # Notify WebSocket clients - emit delete for old name and add for new name
         self._emit_update(old_lower, sound.modified, "delete")
@@ -804,7 +806,7 @@ class SoundService:
         return trim_end - trim_start
 
     async def regenerate_all_audio(
-        self, progress_callback: Optional[callable] = None
+        self, progress_callback: Optional[Callable[[int, int, str], None]] = None
     ) -> tuple[int, int, list[str]]:
         """
         Regenerate all audio files.
@@ -842,13 +844,15 @@ class SoundService:
                 audio_file,
                 start=sound.timestamps.start,
                 end=sound.timestamps.end,
-                volume=sound.volume,
+                volume_db=sound.volume_adjust * 3.0,  # Each notch = 3dB
             )
 
             if audio_result.success:
                 success_count += 1
             else:
-                logger.error(f"Failed to regenerate audio for '{name}': {audio_result.error}")
+                logger.error(
+                    f"Failed to regenerate audio for '{name}': {audio_result.error}"
+                )
                 failed.append(name)
 
         return success_count, len(failed), failed

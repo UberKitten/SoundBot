@@ -35,7 +35,7 @@ async def update_ytdlp_periodically():
     while True:
         try:
             logger.info("Checking for yt-dlp updates...")
-            await ytdlp_service.update_ytdlp()
+            _ = await ytdlp_service.update_ytdlp()
         except Exception as e:
             logger.error(f"Error updating yt-dlp: {e}")
 
@@ -49,13 +49,13 @@ async def run():
         await init()
 
         # Start all services concurrently
-        await asyncio.gather(
+        _ = await asyncio.gather(
             run_web(),
             run_bot(),
             update_ytdlp_periodically(),
         )
     finally:
-        state.save()
+        _ = state.save()
 
 
 async def run_web():
@@ -67,7 +67,7 @@ async def run_web():
         config.logger_class = HypercornLogger
 
         logger.info("Starting web server on :8080")
-        await serve(get_web(), config) # pyright: ignore[reportArgumentType]
+        await serve(get_web(), config)  # pyright: ignore[reportArgumentType]
     except Exception as exc:
         logger.error(f"Could not start web server: {str(exc)}")
 

@@ -13,7 +13,7 @@ router = APIRouter()
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time sound updates.
-    
+
     Clients connect here to receive notifications when sounds are
     added, modified, or deleted. This enables cache busting without
     requiring polling.
@@ -24,7 +24,7 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             # We don't expect messages from clients, but we need to
             # receive to detect disconnection
-            await websocket.receive_text()
+            _ = await websocket.receive_text()
     except WebSocketDisconnect:
         pass
     finally:

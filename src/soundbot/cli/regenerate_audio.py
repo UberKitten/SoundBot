@@ -11,6 +11,7 @@ from pathlib import Path
 
 from soundbot.core.settings import settings
 from soundbot.core.state import state
+from soundbot.models.sounds import Sound
 from soundbot.services.ffmpeg import ffmpeg_service
 from soundbot.services.sounds import sanitize_name
 
@@ -29,7 +30,7 @@ class ProcessResult:
 
 async def _process_sound(
     name: str,
-    sound,
+    sound: Sound,
     sounds_dir: Path,
     dry_run: bool,
     semaphore: asyncio.Semaphore,
@@ -50,7 +51,9 @@ async def _process_sound(
                 message=f"Original file not found ({sound.files.original})",
             )
 
-        volume_info = f"volume={sound.volume_adjust}" if sound.volume_adjust != 0 else ""
+        volume_info = (
+            f"volume={sound.volume_adjust}" if sound.volume_adjust != 0 else ""
+        )
         info = f" ({volume_info})" if volume_info else ""
 
         if dry_run:
@@ -71,7 +74,9 @@ async def _process_sound(
         )
 
         if result.success:
-            time_info = f" ({result.duration_seconds:.1f}s)" if result.duration_seconds else ""
+            time_info = (
+                f" ({result.duration_seconds:.1f}s)" if result.duration_seconds else ""
+            )
             return ProcessResult(
                 name=name,
                 success=True,
@@ -85,7 +90,9 @@ async def _process_sound(
             )
 
 
-async def regenerate_audio_files(dry_run: bool = False, sound_name: str | None = None) -> None:
+async def regenerate_audio_files(
+    dry_run: bool = False, sound_name: str | None = None
+) -> None:
     """
     Regenerate all trimmed audio files in parallel.
 
@@ -138,6 +145,6 @@ async def regenerate_audio_files(dry_run: bool = False, sound_name: str | None =
             print(f"❌ {result.name}: {result.message}")
             failed += 1
 
-    print(f"\n📊 Summary:")
+    print("\n📊 Summary:")
     print(f"   ✅ Processed: {processed}")
     print(f"   ❌ Failed: {failed}")
