@@ -675,7 +675,7 @@ class SoundService:
                 audio_file,
                 start=sound.timestamps.start,
                 end=sound.timestamps.end,
-                volume=sound.volume,
+                volume_db=sound.volume_db,
             )
             if audio_result.duration_seconds:
                 timings["Audio processing"] = audio_result.duration_seconds
