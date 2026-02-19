@@ -37,6 +37,9 @@ RUN uv venv .venv && \
 # Final image
 FROM python-base as soundbot
 
+# Node.js runtime required by yt-dlp for YouTube extraction
+COPY --from=node-builder /usr/local/bin/node /usr/local/bin/node
+
 COPY --from=node-builder /app/web/dist ./web/dist
 
 # Templates are used at runtime by web server
