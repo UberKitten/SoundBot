@@ -29,6 +29,11 @@ async def init():
     # State is loaded at import time, just log it
     logger.info(f"Loaded {len(state.sounds)} sounds")
 
+    # Register Discord webhook notifications for sound add/delete
+    from soundbot.services.webhook import register_webhook_notifications
+
+    register_webhook_notifications()
+
 
 async def update_ytdlp_periodically():
     """Background task to update yt-dlp periodically."""
