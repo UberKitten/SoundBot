@@ -25,6 +25,7 @@ class SoundResponse(BaseModel):
     # Play counts
     discord_plays: int = 0
     twitch_plays: int = 0
+    web_plays: int = 0
 
 
 class SoundsResponse(BaseModel):

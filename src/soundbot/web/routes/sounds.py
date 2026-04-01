@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -36,6 +37,7 @@ async def get_sounds():
                 modified=sound.modified,
                 discord_plays=sound.discord.plays,
                 twitch_plays=sound.twitch.plays,
+                web_plays=sound.web.plays,
             )
         )
 
@@ -67,6 +69,20 @@ async def get_sound_audio(sound_name: str):
         media_type="audio/ogg",
         headers={"Content-Disposition": f'inline; filename="{sound_name}.ogg"'},
     )
+
+
+@router.post("/api/sounds/{sound_name}/play")
+async def record_web_play(sound_name: str):
+    """Record a web UI play for a sound."""
+    sound = state.sounds.get(sound_name)
+    if not sound:
+        raise HTTPException(status_code=404, detail="Sound not found")
+
+    sound.web.plays += 1
+    sound.web.last_played = datetime.now()
+    state.save()
+
+    return {"ok": True}
 
 
 @router.get("/api/search", dependencies=[Depends(no_cache)])

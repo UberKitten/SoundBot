@@ -78,6 +78,7 @@ class Sound(BaseModel):
     # Usage statistics per platform
     discord: Stats = Field(default_factory=Stats)
     twitch: Stats = Field(default_factory=Stats)
+    web: Stats = Field(default_factory=Stats)
 
 
 class SoundOut(Sound):

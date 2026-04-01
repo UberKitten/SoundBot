@@ -145,11 +145,13 @@ class SoundService:
             # Preserve play counts, created date, and added_by from old sound
             old_discord_plays = existing_sound.discord.plays
             old_twitch_plays = existing_sound.twitch.plays
+            old_web_plays = existing_sound.web.plays
             old_created = existing_sound.created
             old_added_by = existing_sound.added_by
         else:
             old_discord_plays = 0
             old_twitch_plays = 0
+            old_web_plays = 0
             old_created = None
             old_added_by = None
 
@@ -250,9 +252,10 @@ class SoundService:
         )
 
         # Restore play counts if overwriting
-        if old_discord_plays > 0 or old_twitch_plays > 0:
+        if old_discord_plays > 0 or old_twitch_plays > 0 or old_web_plays > 0:
             sound.discord.plays = old_discord_plays
             sound.twitch.plays = old_twitch_plays
+            sound.web.plays = old_web_plays
 
         state.sounds[name_lower] = sound
         _ = state.save()
@@ -322,11 +325,13 @@ class SoundService:
             # Preserve play counts, created date, and added_by from old sound
             old_discord_plays = existing_sound.discord.plays
             old_twitch_plays = existing_sound.twitch.plays
+            old_web_plays = existing_sound.web.plays
             old_created = existing_sound.created
             old_added_by = existing_sound.added_by
         else:
             old_discord_plays = 0
             old_twitch_plays = 0
+            old_web_plays = 0
             old_created = None
             old_added_by = None
 
@@ -406,9 +411,10 @@ class SoundService:
         )
 
         # Restore play counts if overwriting
-        if old_discord_plays > 0 or old_twitch_plays > 0:
+        if old_discord_plays > 0 or old_twitch_plays > 0 or old_web_plays > 0:
             sound.discord.plays = old_discord_plays
             sound.twitch.plays = old_twitch_plays
+            sound.web.plays = old_web_plays
 
         state.sounds[name_lower] = sound
         _ = state.save()
