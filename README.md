@@ -120,6 +120,12 @@ npm run build
 uv run python -m soundbot
 ```
 
+### CLI tools
+
+```bash
+uv run python -m soundbot.cli  # Check sounds, regenerate audio
+```
+
 ### Watch mode for frontend development
 
 Run these in separate terminals:
