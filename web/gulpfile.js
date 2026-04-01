@@ -36,12 +36,22 @@ function buildScripts() {
 const buildTask = parallel(buildScripts, buildStyles, copyStatic);
 const defaultTask = series(cleanDist, buildTask);
 
+function cleanStyles(cb) {
+  deleteSync([path.resolve(distPath, "styles/**/*")]);
+  cb();
+}
+
+function cleanScripts(cb) {
+  deleteSync([path.resolve(distPath, "scripts/**/*")]);
+  cb();
+}
+
 function watchStyles() {
-  return gulp.watch(path.resolve(sourcePath, "styles/**/*.css"), buildStyles);
+  return gulp.watch(path.resolve(sourcePath, "styles/**/*.css"), series(cleanStyles, buildStyles));
 }
 
 function watchScripts() {
-  return gulp.watch(path.resolve(sourcePath, "scripts/**/*.ts"), buildScripts);
+  return gulp.watch(path.resolve(sourcePath, "scripts/**/*.ts"), series(cleanScripts, buildScripts));
 }
 
 export const watch = series(defaultTask, parallel(watchStyles, watchScripts));
