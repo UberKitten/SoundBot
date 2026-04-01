@@ -128,7 +128,7 @@ function showProperties(sound: Sound) {
   const props: [string, string | HTMLElement | null][] = [
     ["Source Title", sound.source_title],
     ["Source URL", sound.source_url ? createLink(sound.source_url) : null],
-    ["Volume", `${sound.volume}`],
+    ["Volume", sound.volume != null && sound.volume !== 1 ? `${sound.volume}` : null],
     ["Trim Start", sound.trim_start !== null ? `${sound.trim_start}s` : null],
     ["Trim End", sound.trim_end !== null ? `${sound.trim_end}s` : null],
     ["Source Duration", sound.source_duration !== null ? `${sound.source_duration}s` : null],
