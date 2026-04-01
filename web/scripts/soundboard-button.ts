@@ -9,6 +9,7 @@ import {
   stopMainAudio,
 } from "audio";
 import { copy } from "clipboard";
+import { showContextMenu } from "context-menu";
 import { getDisplayDate, scheduleBackgroundTask } from "utils";
 
 export class SoundboardButton extends HTMLElement {
@@ -48,6 +49,11 @@ export class SoundboardButton extends HTMLElement {
 
     this.updateLabel();
     this.updateIndicators();
+
+    this.oncontextmenu = (e) => {
+      if (!this.sound) return;
+      showContextMenu(e, this.sound);
+    };
 
     this.onclick = (e) => {
       if (!this.sound) return;
