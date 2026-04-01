@@ -14,9 +14,13 @@ uv sync                        # Python deps
 uv sync --extra unix           # Include uvloop (Linux/macOS only)
 npm ci && npm run build        # Frontend (TypeScript/CSS via Gulp)
 
-# Run
-uv run python -m soundbot      # Start bot + web server
+# Run (web only — default for dev, avoids conflicting with production Discord bot)
+uv run python -m soundbot --web-only
 npm run dev                     # Frontend watch mode (separate terminal)
+
+# Run (full — only when working on Discord commands; stop Docker container first)
+# docker compose stop
+uv run python -m soundbot
 
 # CLI tools
 uv run python -m soundbot.cli  # CLI utilities (check sounds, regenerate audio)
@@ -29,6 +33,13 @@ uv run pyright                  # Strict Pyright config in pyproject.toml
 ```
 
 No test suite exists. Test manually: web UI at `http://localhost:8080`, Discord commands in a test guild.
+
+## Development vs Production
+
+The dev instance and Docker production container share the same state file and sounds directory. To avoid two Discord bot instances conflicting:
+
+- **Default dev workflow**: Use `--web-only` flag (web server only, no Discord bot)
+- **Full testing** (Discord commands): Stop Docker first with `docker compose stop`, then run without `--web-only`. Restart Docker after with `docker compose up -d`.
 
 ## Architecture
 

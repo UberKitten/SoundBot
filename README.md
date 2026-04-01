@@ -116,7 +116,10 @@ npm ci
 # Build web assets
 npm run build
 
-# Run the bot (serves web UI at http://localhost:8080)
+# Run web server only (no Discord bot)
+uv run python -m soundbot --web-only
+
+# Run full application (web server + Discord bot)
 uv run python -m soundbot
 ```
 
