@@ -14,6 +14,7 @@ export function init() {
   const singlePlayCheckbox = getInputElement("input#single-sound");
   const volumeSlider = getInputElement("input#volume");
   const stopButton = getButtonElement("button#stop");
+  const clearFilterButton = getButtonElement("button#clear-filter");
   const sortOrderRadios = getInputElements("input[name=sortorder]");
 
   function getSelectedSortOrderRadio() {
@@ -40,6 +41,14 @@ export function init() {
 
   searchInput.addEventListener("input", () => {
     setFilter(searchInput.value);
+    clearFilterButton.hidden = !searchInput.value;
+  });
+
+  clearFilterButton.addEventListener("click", () => {
+    searchInput.value = "";
+    setFilter("");
+    clearFilterButton.hidden = true;
+    searchInput.focus();
   });
 
   // Sticky detents

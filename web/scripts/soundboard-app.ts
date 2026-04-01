@@ -159,6 +159,11 @@ export class SoundboardApp extends HTMLElement {
     button.classList.add("fade-in");
     button.dataset.copyText = `${getRandomPrefix()}${sound.name}`;
 
+    // Hide if it doesn't match the current filter
+    if (this.filter && !getCanonicalString(sound.name)?.includes(this.filter)) {
+      button.classList.add("no-display");
+    }
+
     // Find the correct position to insert based on current sort
     const existingButtons = Array.from(
       this.grid.children as HTMLCollectionOf<HTMLElement>

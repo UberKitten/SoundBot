@@ -124,7 +124,11 @@ soundboard-button.no-sublabel {
 }
 
 soundboard-button.single-playing {
-  background-color: var(--bold-color);
+  background: linear-gradient(
+    to right,
+    var(--bold-color) var(--progress, 0%),
+    var(--primary-color) var(--progress, 0%)
+  );
 }
 
 soundboard-button .icon {
@@ -187,12 +191,35 @@ header label {
   padding-bottom: var(--standard-padding);
 }
 
+.filter-wrapper {
+  position: relative;
+}
+
 header input[type="search"],
 header select {
   border-radius: var(--corner-rounding);
   background-color: var(--primary-color);
   border: 0;
   width: 100%;
+}
+
+.clear-filter {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.2em;
+  cursor: pointer;
+  padding: 0 0.4em;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.clear-filter:hover {
+  opacity: 1;
 }
 
 header input[type="radio"] {
