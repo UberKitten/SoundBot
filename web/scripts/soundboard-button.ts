@@ -129,14 +129,11 @@ export class SoundboardButton extends HTMLElement {
       return;
     }
 
+    const totalPlays = this.sound.discord_plays + this.sound.twitch_plays + this.sound.web_plays;
     const sublabels: Map<string | null, string> = new Map([
       [
         "count",
-        `${
-          this.sound.discord_plays === 1
-            ? "1 Play"
-            : this.sound.discord_plays.toString().concat(" Plays")
-        }`,
+        `${totalPlays === 1 ? "1 Play" : totalPlays.toString().concat(" Plays")}`,
       ],
       ["date", this.displayDate],
     ]);

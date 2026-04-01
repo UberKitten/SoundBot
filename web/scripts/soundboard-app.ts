@@ -193,7 +193,9 @@ export class SoundboardApp extends HTMLElement {
     if (!this.sortOrder) return 0;
 
     if (this.sort === "count") {
-      return numericSort(a.discord_plays, b.discord_plays, this.sortOrder);
+      const aPlays = a.discord_plays + a.twitch_plays + a.web_plays;
+      const bPlays = b.discord_plays + b.twitch_plays + b.web_plays;
+      return numericSort(aPlays, bPlays, this.sortOrder);
     } else if (this.sort === "date") {
       const aTime = a.created ? new Date(a.created).getTime() : 0;
       const bTime = b.created ? new Date(b.created).getTime() : 0;

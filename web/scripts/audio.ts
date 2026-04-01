@@ -1,4 +1,4 @@
-import { SOUNDS_PATH } from "config";
+import { SOUNDS_API_PATH, SOUNDS_PATH } from "config";
 import { parseInteger, scheduleBackgroundTask } from "utils";
 
 const changeListeners: Map<
@@ -34,6 +34,7 @@ export interface Sound {
   modified: string | null;
   discord_plays: number;
   twitch_plays: number;
+  web_plays: number;
   is_legacy: boolean;
 }
 
@@ -134,6 +135,12 @@ export function detachChangeListeners(
   scheduleBackgroundTask(cleanup);
 }
 
+function recordWebPlay(sound: Sound) {
+  fetch(`${SOUNDS_API_PATH}/${encodeURIComponent(sound.name)}/play`, {
+    method: "POST",
+  }).catch(() => {});
+}
+
 export function playButtonAudio(sound: Sound, updateCb: (e: Event) => unknown) {
   const audioGroups = buttonAudio.get(sound);
   const element = document.createElement("audio");
@@ -154,6 +161,7 @@ export function playButtonAudio(sound: Sound, updateCb: (e: Event) => unknown) {
 
   gain.gain.value = volume;
   element.play();
+  recordWebPlay(sound);
   attachChangeListeners(element, updateCb);
 
   scheduleBackgroundTask(() => {
@@ -181,6 +189,7 @@ export function playMainAudio(sound: Sound) {
   if (!soundPath) return;
   mainAudio.src = soundPath;
   mainAudio.play();
+  recordWebPlay(sound);
 }
 
 export function getActiveButtonAudioGroups(
