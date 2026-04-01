@@ -215,6 +215,11 @@ export function isMainAudioActive(sound?: Sound) {
   return (!sound || sound === mainSound) && !mainAudio.paused;
 }
 
+export function getMainAudioProgress(): number {
+  if (mainAudio.paused || !mainAudio.duration) return 0;
+  return mainAudio.currentTime / mainAudio.duration;
+}
+
 export function addMainAudioChangeListener(cb: (e: Event) => unknown) {
   return attachChangeListeners(mainAudio, cb);
 }

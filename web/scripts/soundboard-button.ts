@@ -2,6 +2,7 @@ import {
   Sound,
   addMainAudioChangeListener,
   getActiveAudioGroups,
+  getMainAudioProgress,
   isMainAudioActive,
   playButtonAudio,
   playMainAudio,
@@ -16,6 +17,7 @@ export class SoundboardButton extends HTMLElement {
   singlePlay: boolean | null = null;
   displayDate: string = "";
   audioChangeListener: () => void;
+  progressAnimationId: number | null = null;
 
   constructor() {
     super();
@@ -81,10 +83,35 @@ export class SoundboardButton extends HTMLElement {
       ? this.classList.add("single-playing")
       : this.classList.remove("single-playing");
 
+    if (this.singlePlay && isPlaying) {
+      this.startProgressAnimation();
+    } else {
+      this.stopProgressAnimation();
+    }
+
     const icon = this.querySelector(".icon");
     if (!(icon instanceof HTMLElement)) return;
 
     isPlaying ? icon.classList.remove("hidden") : icon.classList.add("hidden");
+  }
+
+  startProgressAnimation() {
+    if (this.progressAnimationId !== null) return;
+
+    const tick = () => {
+      const progress = getMainAudioProgress();
+      this.style.setProperty("--progress", `${progress * 100}%`);
+      this.progressAnimationId = requestAnimationFrame(tick);
+    };
+    this.progressAnimationId = requestAnimationFrame(tick);
+  }
+
+  stopProgressAnimation() {
+    if (this.progressAnimationId !== null) {
+      cancelAnimationFrame(this.progressAnimationId);
+      this.progressAnimationId = null;
+    }
+    this.style.removeProperty("--progress");
   }
 
   updateLabel() {
