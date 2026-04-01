@@ -51,6 +51,7 @@ async def index(request: Request):
         css_file = None
 
     return templates.TemplateResponse(
+        request,
         "index.html",
-        {"request": request, "css_file": css_file, "js_importmap": js_importmap},
+        {"css_file": css_file, "js_importmap": js_importmap},
     )
