@@ -87,21 +87,50 @@ class SoundService:
         """Get the directory for a specific sound."""
         return self.sounds_dir / sanitize_name(name)
 
+    def resolve_sound_name(self, name: str) -> Optional[tuple[str, Sound]]:
+        """Resolve a name (or alias) to a canonical sound name and Sound object."""
+        name_lower = name.lower()
+
+        # Check canonical name first
+        sound = state.sounds.get(name_lower)
+        if sound:
+            return (name_lower, sound)
+
+        # Check aliases
+        for canonical_name, sound in state.sounds.items():
+            if name_lower in [a.lower() for a in sound.aliases]:
+                return (canonical_name, sound)
+
+        return None
+
     def get_sound(self, name: str) -> Optional[Sound]:
-        """Get a sound by name."""
-        return state.sounds.get(name.lower())
+        """Get a sound by name or alias."""
+        result = self.resolve_sound_name(name)
+        return result[1] if result else None
 
     def list_sounds(self) -> dict[str, Sound]:
         """List all sounds."""
         return state.sounds
 
     def search_sounds(self, query: str) -> list[tuple[str, Sound]]:
-        """Search sounds by name (partial match)."""
+        """Search sounds by name or alias (partial match)."""
         query = query.lower()
         results = []
+        seen = set()
         for name, sound in state.sounds.items():
+            if name in seen:
+                continue
+            # Check canonical name
             if query in name.lower():
                 results.append((name, sound))
+                seen.add(name)
+                continue
+            # Check aliases
+            for alias in sound.aliases:
+                if query in alias.lower():
+                    results.append((name, sound))
+                    seen.add(name)
+                    break
         return sorted(results, key=lambda x: x[0])
 
     async def add_sound(
@@ -142,16 +171,18 @@ class SoundService:
             if old_sound_dir.exists():
                 shutil.rmtree(old_sound_dir)
 
-            # Preserve play counts, created date, and added_by from old sound
+            # Preserve play counts, aliases, created date, and added_by from old sound
             old_discord_plays = existing_sound.discord.plays
             old_twitch_plays = existing_sound.twitch.plays
             old_web_plays = existing_sound.web.plays
+            old_aliases = existing_sound.aliases
             old_created = existing_sound.created
             old_added_by = existing_sound.added_by
         else:
             old_discord_plays = 0
             old_twitch_plays = 0
             old_web_plays = 0
+            old_aliases: list[str] = []
             old_created = None
             old_added_by = None
 
@@ -251,11 +282,13 @@ class SoundService:
             added_by=final_added_by,
         )
 
-        # Restore play counts if overwriting
+        # Restore play counts and aliases if overwriting
         if old_discord_plays > 0 or old_twitch_plays > 0 or old_web_plays > 0:
             sound.discord.plays = old_discord_plays
             sound.twitch.plays = old_twitch_plays
             sound.web.plays = old_web_plays
+        if old_aliases:
+            sound.aliases = old_aliases
 
         state.sounds[name_lower] = sound
         _ = state.save()
@@ -322,16 +355,18 @@ class SoundService:
             if old_sound_dir.exists():
                 shutil.rmtree(old_sound_dir)
 
-            # Preserve play counts, created date, and added_by from old sound
+            # Preserve play counts, aliases, created date, and added_by from old sound
             old_discord_plays = existing_sound.discord.plays
             old_twitch_plays = existing_sound.twitch.plays
             old_web_plays = existing_sound.web.plays
+            old_aliases = existing_sound.aliases
             old_created = existing_sound.created
             old_added_by = existing_sound.added_by
         else:
             old_discord_plays = 0
             old_twitch_plays = 0
             old_web_plays = 0
+            old_aliases: list[str] = []
             old_created = None
             old_added_by = None
 
@@ -410,11 +445,13 @@ class SoundService:
             added_by=final_added_by,
         )
 
-        # Restore play counts if overwriting
+        # Restore play counts and aliases if overwriting
         if old_discord_plays > 0 or old_twitch_plays > 0 or old_web_plays > 0:
             sound.discord.plays = old_discord_plays
             sound.twitch.plays = old_twitch_plays
             sound.web.plays = old_web_plays
+        if old_aliases:
+            sound.aliases = old_aliases
 
         state.sounds[name_lower] = sound
         _ = state.save()
@@ -784,6 +821,77 @@ class SoundService:
         return OperationResult(
             success=True,
             message=f"Renamed '{old_name}' to '{new_name}'",
+        )
+
+    def add_alias(self, sound_name: str, alias: str) -> OperationResult:
+        """Add an alias to a sound."""
+        alias_lower = alias.lower()
+
+        # Resolve the sound
+        result = self.resolve_sound_name(sound_name)
+        if not result:
+            return OperationResult(success=False, message=f"Sound '{sound_name}' not found")
+        canonical_name, sound = result
+
+        # Check alias doesn't conflict with an existing sound name
+        if alias_lower in state.sounds:
+            return OperationResult(
+                success=False,
+                message=f"'{alias}' is already a sound name",
+            )
+
+        # Check alias doesn't conflict with another sound's alias
+        for other_name, other_sound in state.sounds.items():
+            if other_name == canonical_name:
+                continue
+            if alias_lower in [a.lower() for a in other_sound.aliases]:
+                return OperationResult(
+                    success=False,
+                    message=f"'{alias}' is already an alias for '{other_name}'",
+                )
+
+        # Check not already an alias of this sound
+        if alias_lower in [a.lower() for a in sound.aliases]:
+            return OperationResult(
+                success=False,
+                message=f"'{alias}' is already an alias for '{canonical_name}'",
+            )
+
+        sound.aliases.append(alias_lower)
+        sound.modified = datetime.now()
+        state.save()
+        self._emit_update(canonical_name, sound.modified, "edit")
+
+        return OperationResult(
+            success=True,
+            message=f"Added alias '{alias}' for '{canonical_name}'",
+        )
+
+    def remove_alias(self, sound_name: str, alias: str) -> OperationResult:
+        """Remove an alias from a sound."""
+        alias_lower = alias.lower()
+
+        result = self.resolve_sound_name(sound_name)
+        if not result:
+            return OperationResult(success=False, message=f"Sound '{sound_name}' not found")
+        canonical_name, sound = result
+
+        lowercase_aliases = [a.lower() for a in sound.aliases]
+        if alias_lower not in lowercase_aliases:
+            return OperationResult(
+                success=False,
+                message=f"'{alias}' is not an alias for '{canonical_name}'",
+            )
+
+        idx = lowercase_aliases.index(alias_lower)
+        sound.aliases.pop(idx)
+        sound.modified = datetime.now()
+        state.save()
+        self._emit_update(canonical_name, sound.modified, "edit")
+
+        return OperationResult(
+            success=True,
+            message=f"Removed alias '{alias}' from '{canonical_name}'",
         )
 
     def get_audio_path(self, name: str) -> Optional[Path]:

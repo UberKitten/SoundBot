@@ -75,6 +75,9 @@ class Sound(BaseModel):
     modified: datetime = Field(default_factory=datetime.now)
     added_by: Optional[str] = None  # Username of who added this sound
 
+    # Alternate names for this sound
+    aliases: list[str] = Field(default_factory=list)
+
     # Usage statistics per platform
     discord: Stats = Field(default_factory=Stats)
     twitch: Stats = Field(default_factory=Stats)

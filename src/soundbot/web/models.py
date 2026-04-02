@@ -19,6 +19,8 @@ class SoundResponse(BaseModel):
     trim_end: Optional[float] = None
     # Audio settings - volume adjustment in notches (0 = normal)
     volume_adjust: int = 0
+    # Alternate names
+    aliases: List[str] = []
     # Metadata
     created: Optional[datetime] = None
     modified: Optional[datetime] = None

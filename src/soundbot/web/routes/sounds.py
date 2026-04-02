@@ -33,6 +33,7 @@ async def get_sounds():
                 trim_start=sound.timestamps.start,
                 trim_end=sound.timestamps.end,
                 volume_adjust=sound.volume_adjust,
+                aliases=sound.aliases,
                 created=sound.created,
                 modified=sound.modified,
                 discord_plays=sound.discord.plays,
@@ -74,7 +75,7 @@ async def get_sound_audio(sound_name: str):
 @router.post("/api/sounds/{sound_name}/play")
 async def record_web_play(sound_name: str):
     """Record a web UI play for a sound."""
-    sound = state.sounds.get(sound_name)
+    sound = sound_service.get_sound(sound_name)
     if not sound:
         raise HTTPException(status_code=404, detail="Sound not found")
 
