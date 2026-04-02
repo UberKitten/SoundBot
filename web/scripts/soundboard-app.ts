@@ -168,7 +168,7 @@ export class SoundboardApp extends HTMLElement {
     // Find the correct position to insert based on current sort
     const existingButtons = Array.from(
       this.grid.children as HTMLCollectionOf<HTMLElement>
-    );
+    ).filter((btn) => !btn.classList.contains("no-display"));
 
     let insertBefore: HTMLElement | null = null;
     for (const existingButton of existingButtons) {
