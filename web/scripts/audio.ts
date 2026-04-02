@@ -32,6 +32,7 @@ export interface Sound {
   volume: number;
   created: string | null;
   modified: string | null;
+  aliases: string[];
   discord_plays: number;
   twitch_plays: number;
   web_plays: number;

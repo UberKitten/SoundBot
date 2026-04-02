@@ -160,7 +160,8 @@ export class SoundboardApp extends HTMLElement {
     button.dataset.copyText = `${getRandomPrefix()}${sound.name}`;
 
     // Hide if it doesn't match the current filter
-    if (this.filter && !getCanonicalString(sound.name)?.includes(this.filter)) {
+    if (this.filter && !getCanonicalString(sound.name)?.includes(this.filter) &&
+        !sound.aliases?.some((alias) => getCanonicalString(alias)?.includes(this.filter))) {
       button.classList.add("no-display");
     }
 
@@ -211,7 +212,10 @@ export class SoundboardApp extends HTMLElement {
     if (!this.filter) return true;
 
     const sound = JSON.parse(soundBtn.getAttribute("sound")!) as Sound;
-    return getCanonicalString(sound.name).includes(this.filter);
+    if (getCanonicalString(sound.name).includes(this.filter)) return true;
+    return sound.aliases?.some((alias) =>
+      getCanonicalString(alias)?.includes(this.filter)
+    ) ?? false;
   }
 
   updateSoundButtons(updatedProp?: string) {

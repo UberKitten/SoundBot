@@ -126,6 +126,7 @@ function showProperties(sound: Sound) {
   body.className = "modal-body";
 
   const props: [string, string | HTMLElement | null][] = [
+    ["Aliases", sound.aliases?.length ? sound.aliases.join(", ") : null],
     ["Source Title", sound.source_title],
     ["Source URL", sound.source_url ? createLink(sound.source_url) : null],
     ["Volume", sound.volume != null && sound.volume !== 1 ? `${sound.volume}` : null],
