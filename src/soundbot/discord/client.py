@@ -66,12 +66,23 @@ class SoundBot(commands.Bot):
         """Get test guilds as Discord objects."""
         return [discord.Object(id=gid) for gid in self.test_guild_ids]
 
+    async def _clear_guild_commands(self):
+        """Clear any stale guild-specific command registrations."""
+        for guild in self.guilds:
+            self.tree.clear_commands(guild=guild)
+            _ = await self.tree.sync(guild=guild)
+            logger.info(f"Cleared guild commands for {guild.id}")
+
     async def on_ready(self):
         assert self.user is not None  # Always set when on_ready is called
         logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         logger.info(f"Connected to {len(self.guilds)} guilds")
         prefixes = settings.twitch_command_prefixes or ["!"]
         logger.info(f"Command prefixes: {prefixes}")
+
+        # Clear stale guild-specific commands (from old test_guild_ids usage)
+        if not self.test_guild_ids:
+            await self._clear_guild_commands()
 
     @override
     async def setup_hook(self) -> None:
