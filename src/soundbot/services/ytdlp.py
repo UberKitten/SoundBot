@@ -246,7 +246,7 @@ class YtdlpService:
                 "mkv",
                 # Use Node.js for YouTube extraction
                 "--js-runtimes",
-                "nodejs",
+                "node",
             ]
         )
 
@@ -432,7 +432,7 @@ class YtdlpService:
     async def get_video_info(self, url: str) -> Optional[dict[str, Any]]:
         """Get video info without downloading."""
         try:
-            cmd = _get_ytdlp_command() + [url, "--dump-json", "--no-download", "--js-runtimes", "nodejs"]
+            cmd = _get_ytdlp_command() + [url, "--dump-json", "--no-download", "--js-runtimes", "node"]
             logger.debug(f"Getting video info, command: {' '.join(cmd)}")
             with _skip_debugger_subprocess_patch():
                 proc = await asyncio.create_subprocess_exec(
