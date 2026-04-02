@@ -360,6 +360,13 @@ class SoundCommands(commands.Cog):
             inline=True,
         )
 
+        if sound.aliases:
+            _ = embed.add_field(
+                name="Aliases",
+                value=", ".join(sound.aliases),
+                inline=False,
+            )
+
         _ = embed.set_footer(text=f"Created: {sound.created.strftime('%Y-%m-%d')}")
 
         _ = await interaction.response.send_message(embed=embed)
@@ -451,6 +458,48 @@ class SoundCommands(commands.Cog):
             )
             _ = embed.set_footer(text=f"Page {i} of {len(chunks)}")
             _ = await interaction.followup.send(embed=embed)
+
+    alias_group = app_commands.Group(name="alias", description="Manage sound aliases")
+
+    @alias_group.command(name="add")
+    @app_commands.describe(sound="Name of the sound", alias="Alias to add")
+    async def alias_add(self, interaction: Interaction, sound: str, alias: str):
+        """Add an alias for a sound."""
+        sound = strip_command_prefix(sound)
+        alias = strip_command_prefix(alias)
+        result = sound_service.add_alias(sound, alias)
+        emoji = "✅" if result.success else "❌"
+        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+
+    @alias_group.command(name="remove")
+    @app_commands.describe(sound="Name of the sound", alias="Alias to remove")
+    async def alias_remove(self, interaction: Interaction, sound: str, alias: str):
+        """Remove an alias from a sound."""
+        sound = strip_command_prefix(sound)
+        alias = strip_command_prefix(alias)
+        result = sound_service.remove_alias(sound, alias)
+        emoji = "✅" if result.success else "❌"
+        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+
+    @alias_group.command(name="list")
+    @app_commands.describe(sound="Name of the sound")
+    async def alias_list(self, interaction: Interaction, sound: str):
+        """List aliases for a sound."""
+        sound = strip_command_prefix(sound)
+        resolved = sound_service.resolve_sound_name(sound)
+        if not resolved:
+            _ = await interaction.response.send_message(f"❌ Sound '{sound}' not found")
+            return
+        canonical_name, sound_obj = resolved
+        if not sound_obj.aliases:
+            _ = await interaction.response.send_message(
+                f"🔊 '{canonical_name}' has no aliases"
+            )
+        else:
+            aliases = ", ".join(sound_obj.aliases)
+            _ = await interaction.response.send_message(
+                f"🔊 '{canonical_name}' aliases: {aliases}"
+            )
 
     @app_commands.command(name="random")
     async def random_sound(self, interaction: Interaction):
