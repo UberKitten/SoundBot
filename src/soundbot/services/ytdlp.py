@@ -244,9 +244,11 @@ class YtdlpService:
                 # Merge to mkv to preserve all streams
                 "--merge-output-format",
                 "mkv",
-                # Use Node.js for YouTube extraction
+                # Use Node.js for YouTube extraction with EJS challenge solver
                 "--js-runtimes",
                 "node",
+                "--remote-components",
+                "ejs:github",
             ]
         )
 
@@ -432,7 +434,7 @@ class YtdlpService:
     async def get_video_info(self, url: str) -> Optional[dict[str, Any]]:
         """Get video info without downloading."""
         try:
-            cmd = _get_ytdlp_command() + [url, "--dump-json", "--no-download", "--js-runtimes", "node"]
+            cmd = _get_ytdlp_command() + [url, "--dump-json", "--no-download", "--js-runtimes", "node", "--remote-components", "ejs:github"]
             logger.debug(f"Getting video info, command: {' '.join(cmd)}")
             with _skip_debugger_subprocess_patch():
                 proc = await asyncio.create_subprocess_exec(
