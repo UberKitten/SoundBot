@@ -49,7 +49,7 @@ async def update_ytdlp_periodically():
 
 
 async def run():
-    """Run the full application (web server + Discord bot)."""
+    """Run the application."""
     try:
         await init()
 
@@ -59,16 +59,6 @@ async def run():
             run_bot(),
             update_ytdlp_periodically(),
         )
-    finally:
-        _ = state.save()
-
-
-async def run_web_only():
-    """Run only the web server, without the Discord bot."""
-    try:
-        await init()
-        logger.info("Running in web-only mode (no Discord bot)")
-        await run_web()
     finally:
         _ = state.save()
 

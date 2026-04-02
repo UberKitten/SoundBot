@@ -116,12 +116,11 @@ npm ci
 # Build web assets
 npm run build
 
-# Run web server only (no Discord bot)
-uv run python -m soundbot --web-only
-
-# Run full application (web server + Discord bot)
+# Run the bot (serves web UI at http://localhost:8080)
 uv run python -m soundbot
 ```
+
+> **Note:** A file lock prevents multiple instances from running simultaneously. If using Docker, stop it first with `docker compose stop`.
 
 ### CLI tools
 

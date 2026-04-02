@@ -14,13 +14,10 @@ uv sync                        # Python deps
 uv sync --extra unix           # Include uvloop (Linux/macOS only)
 npm ci && npm run build        # Frontend (TypeScript/CSS via Gulp)
 
-# Run (web only — default for dev, avoids conflicting with production Discord bot)
-uv run python -m soundbot --web-only
-npm run dev                     # Frontend watch mode (separate terminal)
-
-# Run (full — only when working on Discord commands; stop Docker container first)
+# Run locally (stop Docker first — state file lock prevents concurrent instances)
 # docker compose stop
-uv run python -m soundbot
+uv run python -m soundbot      # Start bot + web server
+npm run dev                     # Frontend watch mode (separate terminal)
 
 # CLI tools
 uv run python -m soundbot.cli  # CLI utilities (check sounds, regenerate audio)
@@ -36,10 +33,10 @@ No test suite exists. Test manually: web UI at `http://localhost:8080`, Discord 
 
 ## Development vs Production
 
-The dev instance and Docker production container share the same state file and sounds directory. To avoid two Discord bot instances conflicting:
+The dev instance and Docker production container share the same state file and sounds directory via bind mount. A file lock (`config/state.lock`) prevents multiple instances from running simultaneously.
 
-- **Default dev workflow**: Use `--web-only` flag (web server only, no Discord bot)
-- **Full testing** (Discord commands): Stop Docker first with `docker compose stop`, then run without `--web-only`. Restart Docker after with `docker compose up -d`.
+- **Dev workflow**: Stop Docker first (`docker compose stop`), then run locally. Restart Docker after with `docker compose up -d`.
+- **Deploy**: `git push && docker compose build && docker compose up -d`
 
 ## Architecture
 

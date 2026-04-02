@@ -9,10 +9,8 @@ if __name__ == "__main__":
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    web_only = "--web-only" in sys.argv
-
     # Import app first which creates most loggers
-    from soundbot.app import run, run_web_only
+    from soundbot.app import run
 
     # Silence noisy third-party loggers
     # logging.getLogger("discord").setLevel(logging.WARNING)
@@ -22,15 +20,13 @@ if __name__ == "__main__":
     logging.getLogger("hypercorn").setLevel(logging.WARNING)
     logging.getLogger("hypercorn.access").setLevel(logging.WARNING)
 
-    entry = run_web_only if web_only else run
-
     # Use uvloop on Unix platforms for better performance
     if sys.platform != "win32":
         try:
             import uvloop  # type: ignore[import-not-found]
 
-            uvloop.run(entry())
+            uvloop.run(run())
         except ImportError:
-            asyncio.run(entry())
+            asyncio.run(run())
     else:
-        asyncio.run(entry())
+        asyncio.run(run())
