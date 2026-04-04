@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 from soundbot.core.state import state
 from soundbot.services.sounds import sound_service
-from soundbot.web.dependencies import no_cache
+from soundbot.web.dependencies import no_cache, require_api_key
 from soundbot.web.models import GroupResponse, SoundResponse, SoundsResponse
 
 logger = logging.getLogger(__name__)
@@ -86,6 +86,23 @@ async def record_web_play(sound_name: str):
 
     sound.web.plays += 1
     sound.web.last_played = datetime.now()
+    state.save()
+
+    return {"ok": True}
+
+
+@router.post(
+    "/api/sounds/{sound_name}/stream-play",
+    dependencies=[Depends(require_api_key)],
+)
+async def record_stream_play(sound_name: str):
+    """Record a stream play for a sound. Requires API key."""
+    sound = sound_service.get_sound(sound_name)
+    if not sound:
+        raise HTTPException(status_code=404, detail="Sound not found")
+
+    sound.twitch.plays += 1
+    sound.twitch.last_played = datetime.now()
     state.save()
 
     return {"ok": True}

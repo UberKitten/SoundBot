@@ -22,6 +22,9 @@ class Settings(BaseSettings):
 
     twitch_command_prefixes: list[str] = ["!", "¡", "?", "‽", "$", "~", "ඞ", "ꙮ"]
 
+    # API key for authenticated endpoints (stream play recording)
+    api_key: Optional[str] = None
+
     # Target loudness for audio normalization (EBU R128)
     # Lower values are quieter
     # When changing, run: uv run python -m soundbot.cli regenerate-audio
