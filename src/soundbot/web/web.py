@@ -46,6 +46,15 @@ def _on_sound_update(name: str, modified: datetime, action: str):
         pass
 
 
+def _on_group_update(name: str, members: list[str], action: str):
+    """Bridge callback to async WebSocket broadcast."""
+    try:
+        loop = asyncio.get_running_loop()
+        _ = loop.create_task(ws_manager.broadcast_group_update(name, members, action))
+    except RuntimeError:
+        pass
+
+
 def get_web():
     global web
 
@@ -66,8 +75,9 @@ def get_web():
 
         web.include_router(router)
 
-        # Register WebSocket callback for sound updates
+        # Register WebSocket callbacks for real-time updates
         sound_service.on_sound_update(_on_sound_update)
+        sound_service.on_group_update(_on_group_update)
 
         sounds_path = Path(settings.sounds_folder)
         if sounds_path.exists():

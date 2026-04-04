@@ -15,7 +15,7 @@ import {
   setError,
   setInfo,
 } from "utils";
-import { SoundUpdateEvent, onSoundUpdate } from "websocket";
+import { GroupUpdateEvent, SoundUpdateEvent, onGroupUpdate, onSoundUpdate } from "websocket";
 
 export class SoundboardApp extends HTMLElement {
   sounds: Array<Sound> = [];
@@ -28,6 +28,7 @@ export class SoundboardApp extends HTMLElement {
   activeRenders: number[] = [];
   firstRenderCompleted = false;
   unsubscribeWebSocket: (() => void) | null = null;
+  unsubscribeGroupWebSocket: (() => void) | null = null;
 
   constructor() {
     super();
@@ -61,14 +62,19 @@ export class SoundboardApp extends HTMLElement {
       })
       .catch((error) => setError(error));
 
-    // Subscribe to real-time sound updates for cache busting
+    // Subscribe to real-time updates
     this.unsubscribeWebSocket = onSoundUpdate((event) => this.handleSoundUpdate(event));
+    this.unsubscribeGroupWebSocket = onGroupUpdate((event) => this.handleGroupUpdate(event));
   }
 
   disconnectedCallback() {
     if (this.unsubscribeWebSocket) {
       this.unsubscribeWebSocket();
       this.unsubscribeWebSocket = null;
+    }
+    if (this.unsubscribeGroupWebSocket) {
+      this.unsubscribeGroupWebSocket();
+      this.unsubscribeGroupWebSocket = null;
     }
   }
 
@@ -130,6 +136,25 @@ export class SoundboardApp extends HTMLElement {
         button.setAttribute("sound", JSON.stringify(sound));
       }
     }
+  }
+
+  handleGroupUpdate(event: GroupUpdateEvent) {
+    const { group_name, members, action } = event;
+
+    if (action === "delete") {
+      this.groups = this.groups.filter((g) => g.name !== group_name);
+    } else if (action === "add") {
+      this.groups.push({ name: group_name, members });
+    } else {
+      const group = this.groups.find((g) => g.name === group_name);
+      if (group) {
+        group.members = members;
+      } else {
+        this.groups.push({ name: group_name, members });
+      }
+    }
+
+    this.renderGroupButtons();
   }
 
   /**

@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 # Args: (sound_name: str, modified: datetime, action: str)
 SoundUpdateCallback = Callable[[str, datetime, str], None]
 
+# Callback type for group update events
+# Args: (group_name: str, members: list[str], action: str)
+GroupUpdateCallback = Callable[[str, list[str], str], None]
+
 
 def sanitize_name(name: str) -> str:
     """Sanitize a sound name for use as a directory name."""
@@ -62,6 +66,7 @@ class SoundService:
     def __init__(self):
         super().__init__()
         self._update_callbacks: list[SoundUpdateCallback] = []
+        self._group_update_callbacks: list[GroupUpdateCallback] = []
 
     def on_sound_update(self, callback: SoundUpdateCallback):
         """Register a callback to be called when sounds are updated.
@@ -70,6 +75,18 @@ class SoundService:
         Action is one of: "add", "edit", "delete", "rename"
         """
         self._update_callbacks.append(callback)
+
+    def on_group_update(self, callback: GroupUpdateCallback):
+        """Register a callback for group updates."""
+        self._group_update_callbacks.append(callback)
+
+    def _emit_group_update(self, group_name: str, members: list[str], action: str):
+        """Emit a group update event to all registered callbacks."""
+        for callback in self._group_update_callbacks:
+            try:
+                callback(group_name, members, action)
+            except Exception as e:
+                logger.error(f"Error in group update callback: {e}")
 
     def _emit_update(self, sound_name: str, modified: datetime, action: str):
         """Emit a sound update event to all registered callbacks."""
@@ -927,6 +944,7 @@ class SoundService:
 
         state.groups[name_lower] = []
         state.save()
+        self._emit_group_update(name_lower, [], "add")
 
         return OperationResult(success=True, message=f"Created group '{name}'")
 
@@ -938,6 +956,7 @@ class SoundService:
 
         del state.groups[name_lower]
         state.save()
+        self._emit_group_update(name_lower, [], "delete")
 
         return OperationResult(success=True, message=f"Deleted group '{name}'")
 
@@ -963,6 +982,7 @@ class SoundService:
 
         state.groups[group_lower].append(canonical_name)
         state.save()
+        self._emit_group_update(group_lower, state.groups[group_lower], "edit")
 
         return OperationResult(
             success=True,
@@ -987,6 +1007,7 @@ class SoundService:
 
         state.groups[group_lower].remove(canonical_name)
         state.save()
+        self._emit_group_update(group_lower, state.groups[group_lower], "edit")
 
         return OperationResult(
             success=True,

@@ -21,6 +21,16 @@ class SoundUpdateEvent(BaseModel):
     action: str
 
 
+class GroupUpdateEvent(BaseModel):
+    """Event sent when a group is updated."""
+
+    type: str = "group_update"
+    group_name: str
+    members: list[str]
+    # Action: "add", "edit", "delete"
+    action: str
+
+
 class WebSocketManager:
     """Manages WebSocket connections and broadcasts events."""
 
@@ -73,6 +83,18 @@ class WebSocketManager:
         )
         await self.broadcast(event.model_dump_json())
         logger.debug(f"Broadcast sound update: {sound_name} ({action})")
+
+    async def broadcast_group_update(
+        self, group_name: str, members: list[str], action: str = "edit"
+    ):
+        """Broadcast a group update event to all clients."""
+        event = GroupUpdateEvent(
+            group_name=group_name,
+            members=members,
+            action=action,
+        )
+        await self.broadcast(event.model_dump_json())
+        logger.debug(f"Broadcast group update: {group_name} ({action})")
 
 
 # Global WebSocket manager instance

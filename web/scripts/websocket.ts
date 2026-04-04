@@ -11,9 +11,18 @@ export interface SoundUpdateEvent {
   action: "add" | "edit" | "delete" | "rename";
 }
 
+export interface GroupUpdateEvent {
+  type: "group_update";
+  group_name: string;
+  members: string[];
+  action: "add" | "edit" | "delete";
+}
+
 type SoundUpdateCallback = (event: SoundUpdateEvent) => void;
+type GroupUpdateCallback = (event: GroupUpdateEvent) => void;
 
 const callbacks: SoundUpdateCallback[] = [];
+const groupCallbacks: GroupUpdateCallback[] = [];
 let socket: WebSocket | null = null;
 let reconnectTimeout: number | null = null;
 let reconnectAttempts = 0;
@@ -57,12 +66,21 @@ function connect(): void {
 
     socket.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data) as SoundUpdateEvent;
+        const data = JSON.parse(event.data);
         if (data.type === "sound_update") {
           console.log(`[ws] Sound update: ${data.sound_name} (${data.action})`);
           callbacks.forEach((cb) => {
             try {
-              cb(data);
+              cb(data as SoundUpdateEvent);
+            } catch (e) {
+              console.error("[ws] Error in callback:", e);
+            }
+          });
+        } else if (data.type === "group_update") {
+          console.log(`[ws] Group update: ${data.group_name} (${data.action})`);
+          groupCallbacks.forEach((cb) => {
+            try {
+              cb(data as GroupUpdateEvent);
             } catch (e) {
               console.error("[ws] Error in callback:", e);
             }
@@ -122,6 +140,21 @@ export function onSoundUpdate(callback: SoundUpdateCallback): () => void {
     const index = callbacks.indexOf(callback);
     if (index !== -1) {
       callbacks.splice(index, 1);
+    }
+  };
+}
+
+export function onGroupUpdate(callback: GroupUpdateCallback): () => void {
+  groupCallbacks.push(callback);
+
+  if (!socket) {
+    connect();
+  }
+
+  return () => {
+    const index = groupCallbacks.indexOf(callback);
+    if (index !== -1) {
+      groupCallbacks.splice(index, 1);
     }
   };
 }
