@@ -37,6 +37,7 @@ export class SoundboardApp extends HTMLElement {
   firstRenderCompleted = false;
   unsubscribeWebSocket: (() => void) | null = null;
   unsubscribeGroupWebSocket: (() => void) | null = null;
+  groupShuffleBags: Map<string, string[]> = new Map();
 
   constructor() {
     super();
@@ -470,7 +471,7 @@ export class SoundboardApp extends HTMLElement {
       });
 
       button.addEventListener("click", () => {
-        const member = group.members[Math.floor(Math.random() * group.members.length)];
+        const member = this.pickFromGroup(group);
         const sound = this.sounds.find((s) => s.name === member);
         if (sound) {
           button.dataset.playingSound = sound.name;
@@ -482,6 +483,20 @@ export class SoundboardApp extends HTMLElement {
 
       this.grid.appendChild(button);
     }
+  }
+
+  pickFromGroup(group: SoundGroup): string {
+    let bag = this.groupShuffleBags.get(group.name);
+    if (!bag || bag.length === 0) {
+      // Refill and shuffle (Fisher-Yates)
+      bag = [...group.members];
+      for (let i = bag.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [bag[i], bag[j]] = [bag[j], bag[i]];
+      }
+      this.groupShuffleBags.set(group.name, bag);
+    }
+    return bag.pop()!;
   }
 
   attributeChangedCallback(

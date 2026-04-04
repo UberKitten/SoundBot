@@ -67,6 +67,7 @@ class SoundService:
         super().__init__()
         self._update_callbacks: list[SoundUpdateCallback] = []
         self._group_update_callbacks: list[GroupUpdateCallback] = []
+        self._group_shuffle_bags: dict[str, list[str]] = {}
 
     def on_sound_update(self, callback: SoundUpdateCallback):
         """Register a callback to be called when sounds are updated.
@@ -919,11 +920,22 @@ class SoundService:
         return state.groups.get(name.lower())
 
     def resolve_group_random(self, name: str) -> Optional[tuple[str, Sound]]:
-        """Resolve a group name to a random member sound."""
+        """Resolve a group name to a random member using shuffle bag (no repeats until all played)."""
         members = self.resolve_group(name)
         if not members:
             return None
-        chosen = random.choice(members)
+
+        name_lower = name.lower()
+        bag = self._group_shuffle_bags.get(name_lower)
+        if not bag:
+            bag = list(members)
+            random.shuffle(bag)
+            self._group_shuffle_bags[name_lower] = bag
+
+        chosen = bag.pop()
+        if not bag:
+            del self._group_shuffle_bags[name_lower]
+
         return self.resolve_sound_name(chosen)
 
     def create_group(self, name: str) -> OperationResult:
