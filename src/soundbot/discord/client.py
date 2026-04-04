@@ -1227,6 +1227,13 @@ class PlaybackCog(commands.Cog):
             resolved_name = sound_name
 
             if not audio_path:
+                # Try group (random member)
+                group_result = sound_service.resolve_group_random(sound_name)
+                if group_result:
+                    resolved_name = group_result[0]
+                    audio_path = sound_service.get_audio_path(resolved_name)
+
+            if not audio_path:
                 # Try partial match
                 matches = sound_service.search_sounds(sound_name)
                 if len(matches) == 1:

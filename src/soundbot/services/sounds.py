@@ -1,6 +1,7 @@
 """Service for managing sounds - download, process, store, and retrieve."""
 
 import logging
+import random
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -893,6 +894,136 @@ class SoundService:
             success=True,
             message=f"Removed alias '{alias}' from '{canonical_name}'",
         )
+
+    # --- Group management ---
+
+    def resolve_group(self, name: str) -> Optional[list[str]]:
+        """Resolve a group name to its list of sound names."""
+        return state.groups.get(name.lower())
+
+    def resolve_group_random(self, name: str) -> Optional[tuple[str, Sound]]:
+        """Resolve a group name to a random member sound."""
+        members = self.resolve_group(name)
+        if not members:
+            return None
+        chosen = random.choice(members)
+        return self.resolve_sound_name(chosen)
+
+    def create_group(self, name: str) -> OperationResult:
+        """Create a new sound group."""
+        name_lower = name.lower()
+
+        if name_lower in state.groups:
+            return OperationResult(success=False, message=f"Group '{name}' already exists")
+        if name_lower in state.sounds:
+            return OperationResult(success=False, message=f"'{name}' is already a sound name")
+        # Check aliases
+        for sound_name, sound in state.sounds.items():
+            if name_lower in [a.lower() for a in sound.aliases]:
+                return OperationResult(
+                    success=False,
+                    message=f"'{name}' is already an alias for '{sound_name}'",
+                )
+
+        state.groups[name_lower] = []
+        state.save()
+
+        return OperationResult(success=True, message=f"Created group '{name}'")
+
+    def delete_group(self, name: str) -> OperationResult:
+        """Delete a sound group."""
+        name_lower = name.lower()
+        if name_lower not in state.groups:
+            return OperationResult(success=False, message=f"Group '{name}' not found")
+
+        del state.groups[name_lower]
+        state.save()
+
+        return OperationResult(success=True, message=f"Deleted group '{name}'")
+
+    def add_to_group(self, group_name: str, sound_name: str) -> OperationResult:
+        """Add a sound to a group."""
+        group_lower = group_name.lower()
+        if group_lower not in state.groups:
+            return OperationResult(success=False, message=f"Group '{group_name}' not found")
+
+        # Resolve sound to verify it exists
+        result = self.resolve_sound_name(sound_name)
+        if not result:
+            return OperationResult(success=False, message=f"Sound '{sound_name}' not found")
+        canonical_name = result[0]
+
+        if canonical_name in state.groups[group_lower]:
+            return OperationResult(
+                success=False,
+                message=f"'{canonical_name}' is already in group '{group_name}'",
+            )
+
+        state.groups[group_lower].append(canonical_name)
+        state.save()
+
+        return OperationResult(
+            success=True,
+            message=f"Added '{canonical_name}' to group '{group_name}'",
+        )
+
+    def remove_from_group(self, group_name: str, sound_name: str) -> OperationResult:
+        """Remove a sound from a group."""
+        group_lower = group_name.lower()
+        if group_lower not in state.groups:
+            return OperationResult(success=False, message=f"Group '{group_name}' not found")
+
+        # Resolve sound name
+        result = self.resolve_sound_name(sound_name)
+        canonical_name = result[0] if result else sound_name.lower()
+
+        if canonical_name not in state.groups[group_lower]:
+            return OperationResult(
+                success=False,
+                message=f"'{canonical_name}' is not in group '{group_name}'",
+            )
+
+        state.groups[group_lower].remove(canonical_name)
+        state.save()
+
+        return OperationResult(
+            success=True,
+            message=f"Removed '{canonical_name}' from group '{group_name}'",
+        )
+
+    def list_groups(self) -> dict[str, list[str]]:
+        """List all groups."""
+        return state.groups
+
+    def resolve_playable(self, name: str) -> Optional[tuple[str, Path]]:
+        """Resolve a name to a playable sound through the full lookup chain.
+
+        Resolution order: exact name → alias → group (random member) → single partial match.
+        Returns (resolved_name, audio_path) or None.
+        """
+        # 1. Exact name or alias
+        audio_path = self.get_audio_path(name)
+        if audio_path:
+            result = self.resolve_sound_name(name)
+            return (result[0] if result else name, audio_path)
+
+        # 2. Group (random member)
+        group_result = self.resolve_group_random(name)
+        if group_result:
+            resolved_name = group_result[0]
+            audio_path = self.get_audio_path(resolved_name)
+            if audio_path:
+                return (resolved_name, audio_path)
+
+        # 3. Single partial match
+        matches = self.search_sounds(name)
+        if len(matches) == 1:
+            resolved_name = matches[0][0]
+            audio_path = self.get_audio_path(resolved_name)
+            if audio_path:
+                return (resolved_name, audio_path)
+
+        return None
 
     def get_audio_path(self, name: str) -> Optional[Path]:
         """Get the path to the processed audio file for playback."""

@@ -52,6 +52,7 @@ class State(BaseModel):
     exits: Dict[str, str] = {}
 
     sounds: Dict[str, Sound] = {}
+    groups: Dict[str, list[str]] = {}
 
     def save(self):
         _ = Path(settings.state_file).write_text(
