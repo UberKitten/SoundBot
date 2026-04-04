@@ -123,7 +123,8 @@ soundboard-button.no-sublabel {
     var(--button-padding-x);
 }
 
-soundboard-button.single-playing {
+soundboard-button.single-playing,
+.group-button.single-playing {
   background: linear-gradient(
     to right,
     var(--bold-color) var(--progress, 0%),

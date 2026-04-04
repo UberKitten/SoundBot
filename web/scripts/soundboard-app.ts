@@ -1,4 +1,12 @@
-import { Sound, SoundGroup, isSoundObject, playMainAudio } from "audio";
+import {
+  Sound,
+  SoundGroup,
+  addMainAudioChangeListener,
+  getMainAudioProgress,
+  isSoundObject,
+  isMainAudioActive,
+  playMainAudio,
+} from "audio";
 import { copy } from "clipboard";
 import { SOUNDS_API_PATH, getRandomPrefix } from "config";
 import { init } from "dom-init";
@@ -431,11 +439,43 @@ export class SoundboardApp extends HTMLElement {
         button.classList.add("no-display");
       }
 
+      let progressId: number | null = null;
+
+      const stopProgress = () => {
+        if (progressId !== null) {
+          cancelAnimationFrame(progressId);
+          progressId = null;
+        }
+        button.style.removeProperty("--progress");
+        button.classList.remove("single-playing");
+      };
+
+      const startProgress = () => {
+        if (progressId !== null) return;
+        button.classList.add("single-playing");
+        const tick = () => {
+          button.style.setProperty("--progress", `${getMainAudioProgress() * 100}%`);
+          progressId = requestAnimationFrame(tick);
+        };
+        progressId = requestAnimationFrame(tick);
+      };
+
+      addMainAudioChangeListener(() => {
+        if (button.dataset.playingSound && isMainAudioActive()) {
+          startProgress();
+        } else {
+          stopProgress();
+          delete button.dataset.playingSound;
+        }
+      });
+
       button.addEventListener("click", () => {
         const member = group.members[Math.floor(Math.random() * group.members.length)];
         const sound = this.sounds.find((s) => s.name === member);
         if (sound) {
+          button.dataset.playingSound = sound.name;
           playMainAudio(sound);
+          startProgress();
         }
         copy(button, button.querySelector<HTMLElement>(".sortDisplay"));
       });
