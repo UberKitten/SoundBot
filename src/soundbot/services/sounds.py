@@ -942,10 +942,12 @@ class SoundService:
         return OperationResult(success=True, message=f"Deleted group '{name}'")
 
     def add_to_group(self, group_name: str, sound_name: str) -> OperationResult:
-        """Add a sound to a group."""
+        """Add a sound to a group, creating the group if it doesn't exist."""
         group_lower = group_name.lower()
         if group_lower not in state.groups:
-            return OperationResult(success=False, message=f"Group '{group_name}' not found")
+            create_result = self.create_group(group_name)
+            if not create_result.success:
+                return create_result
 
         # Resolve sound to verify it exists
         result = self.resolve_sound_name(sound_name)
