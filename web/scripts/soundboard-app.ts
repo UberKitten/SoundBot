@@ -1,4 +1,5 @@
-import { Sound, isSoundObject } from "audio";
+import { Sound, SoundGroup, isSoundObject, playMainAudio } from "audio";
+import { copy } from "clipboard";
 import { SOUNDS_API_PATH, getRandomPrefix } from "config";
 import { init } from "dom-init";
 import {
@@ -18,6 +19,7 @@ import { SoundUpdateEvent, onSoundUpdate } from "websocket";
 
 export class SoundboardApp extends HTMLElement {
   sounds: Array<Sound> = [];
+  groups: Array<SoundGroup> = [];
   filter = "";
   sort: string | null = null;
   sortOrder: "asc" | "desc" | null = null;
@@ -51,8 +53,10 @@ export class SoundboardApp extends HTMLElement {
     clearError();
 
     this.fetchSounds()
-      .then((sounds) => {
-        this.sounds = sounds as Array<Sound>;
+      .then((result) => {
+        const { sounds, groups } = result as { sounds: Array<Sound>; groups: Array<SoundGroup> };
+        this.sounds = sounds;
+        this.groups = groups;
         this.updateSoundButtons();
       })
       .catch((error) => setError(error));
@@ -211,7 +215,16 @@ export class SoundboardApp extends HTMLElement {
   filterSoundButtons(soundBtn: HTMLButtonElement) {
     if (!this.filter) return true;
 
-    const sound = JSON.parse(soundBtn.getAttribute("sound")!) as Sound;
+    // Group buttons
+    const groupName = soundBtn.dataset.groupName;
+    if (groupName) {
+      return getCanonicalString(groupName)?.includes(this.filter) ?? false;
+    }
+
+    const soundAttr = soundBtn.getAttribute("sound");
+    if (!soundAttr) return false;
+
+    const sound = JSON.parse(soundAttr) as Sound;
     if (getCanonicalString(sound.name).includes(this.filter)) return true;
     return sound.aliases?.some((alias) =>
       getCanonicalString(alias)?.includes(this.filter)
@@ -364,6 +377,45 @@ export class SoundboardApp extends HTMLElement {
         );
         nextSlice = sliceIterator.next();
       }
+
+      // Render group buttons
+      this.activeRenders.push(
+        scheduleBackgroundTask(() => this.renderGroupButtons())
+      );
+    }
+  }
+
+  renderGroupButtons() {
+    // Remove existing group buttons
+    this.grid.querySelectorAll(".group-button").forEach((el) => el.remove());
+
+    for (const group of this.groups) {
+      if (group.members.length === 0) continue;
+
+      const button = document.createElement("button");
+      button.className = "group-button fade-in";
+      button.innerHTML = `
+        <span class="icon hidden">&#x1F3B2;</span>
+        <span>${group.name}</span>
+        <span class="sortDisplay">${group.members.length} sound${group.members.length === 1 ? "" : "s"}</span>`;
+      button.dataset.groupName = group.name;
+      button.dataset.copyText = `${getRandomPrefix()}${group.name}`;
+
+      // Filter visibility
+      if (this.filter && !getCanonicalString(group.name)?.includes(this.filter)) {
+        button.classList.add("no-display");
+      }
+
+      button.addEventListener("click", () => {
+        const member = group.members[Math.floor(Math.random() * group.members.length)];
+        const sound = this.sounds.find((s) => s.name === member);
+        if (sound) {
+          playMainAudio(sound);
+        }
+        copy(button, button.querySelector<HTMLElement>(".sortDisplay"));
+      });
+
+      this.grid.appendChild(button);
     }
   }
 
@@ -397,7 +449,7 @@ export class SoundboardApp extends HTMLElement {
         !Array.isArray(json) &&
         Array.isArray(json.sounds) &&
         !json.sounds.find((sound: unknown) => !isSoundObject(sound))
-          ? json.sounds
+          ? { sounds: json.sounds, groups: Array.isArray(json.groups) ? json.groups : [] }
           : undefined,
     });
   }

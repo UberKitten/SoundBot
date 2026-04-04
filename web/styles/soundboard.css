@@ -334,6 +334,38 @@ label {
   cursor: pointer;
 }
 
+/* Group buttons */
+
+.group-button {
+  border-radius: var(--corner-rounding);
+  background-color: var(--alt-color);
+  border: 2px dashed var(--primary-color);
+  cursor: pointer;
+  user-select: none;
+  padding: var(--button-padding-y) var(--button-padding-x);
+  text-align: center;
+  word-wrap: break-word;
+  color: white;
+  font-size: inherit;
+}
+
+.group-button > span {
+  display: block;
+  padding-bottom: 0.1rem;
+}
+
+.group-button > span:last-child {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.7rem;
+}
+
+.group-button .icon {
+  position: absolute;
+  margin-top: calc(
+    -1 * var(--button-padding-y) + calc(var(--standard-padding) * 0.5)
+  );
+}
+
 /* Context menu */
 
 .context-menu {

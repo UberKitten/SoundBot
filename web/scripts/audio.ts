@@ -39,6 +39,11 @@ export interface Sound {
   is_legacy: boolean;
 }
 
+export interface SoundGroup {
+  name: string;
+  members: string[];
+}
+
 export interface AudioGroup {
   element: HTMLAudioElement;
   source: MediaElementAudioSourceNode;
