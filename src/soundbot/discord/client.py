@@ -512,6 +512,68 @@ class SoundCommands(commands.Cog):
                 f"🔊 '{canonical_name}' aliases: {aliases}"
             )
 
+    group_cmd = app_commands.Group(name="group", description="Manage sound groups")
+
+    @group_cmd.command(name="create")
+    @app_commands.describe(name="Name for the group")
+    async def group_create(self, interaction: Interaction, name: str):
+        """Create a new sound group."""
+        result = sound_service.create_group(name)
+        emoji = "✅" if result.success else "❌"
+        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+
+    @group_cmd.command(name="delete")
+    @app_commands.describe(name="Name of the group")
+    async def group_delete(self, interaction: Interaction, name: str):
+        """Delete a sound group."""
+        result = sound_service.delete_group(name)
+        emoji = "✅" if result.success else "❌"
+        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+
+    @group_cmd.command(name="add")
+    @app_commands.describe(group="Name of the group", sound="Sound to add")
+    async def group_add(self, interaction: Interaction, group: str, sound: str):
+        """Add a sound to a group."""
+        sound = strip_command_prefix(sound)
+        result = sound_service.add_to_group(group, sound)
+        emoji = "✅" if result.success else "❌"
+        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+
+    @group_cmd.command(name="remove")
+    @app_commands.describe(group="Name of the group", sound="Sound to remove")
+    async def group_remove(self, interaction: Interaction, group: str, sound: str):
+        """Remove a sound from a group."""
+        sound = strip_command_prefix(sound)
+        result = sound_service.remove_from_group(group, sound)
+        emoji = "✅" if result.success else "❌"
+        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+
+    @group_cmd.command(name="list")
+    @app_commands.describe(name="Group name (omit to list all groups)")
+    async def group_list(self, interaction: Interaction, name: Optional[str] = None):
+        """List all groups or members of a specific group."""
+        if name:
+            members = sound_service.resolve_group(name)
+            if members is None:
+                _ = await interaction.response.send_message(f"❌ Group '{name}' not found")
+            elif not members:
+                _ = await interaction.response.send_message(
+                    f"🎲 Group '{name}' is empty"
+                )
+            else:
+                _ = await interaction.response.send_message(
+                    f"🎲 Group '{name}': {', '.join(members)}"
+                )
+        else:
+            groups = sound_service.list_groups()
+            if not groups:
+                _ = await interaction.response.send_message("No groups yet")
+            else:
+                lines = [f"**{name}** ({len(members)})" for name, members in groups.items()]
+                _ = await interaction.response.send_message(
+                    f"🎲 Groups: {', '.join(lines)}"
+                )
+
     @app_commands.command(name="random")
     async def random_sound(self, interaction: Interaction):
         """Play a random sound (max 2 minutes)."""

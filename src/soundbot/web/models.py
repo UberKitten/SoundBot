@@ -30,8 +30,16 @@ class SoundResponse(BaseModel):
     web_plays: int = 0
 
 
+class GroupResponse(BaseModel):
+    """Sound group data for the frontend API."""
+
+    name: str
+    members: List[str]
+
+
 class SoundsResponse(BaseModel):
     """Response for /api/sounds endpoint."""
 
     sounds: List[SoundResponse]
+    groups: List[GroupResponse] = []
     total: int

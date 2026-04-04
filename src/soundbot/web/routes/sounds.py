@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from soundbot.core.state import state
 from soundbot.services.sounds import sound_service
 from soundbot.web.dependencies import no_cache
-from soundbot.web.models import SoundResponse, SoundsResponse
+from soundbot.web.models import GroupResponse, SoundResponse, SoundsResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -42,7 +42,12 @@ async def get_sounds():
             )
         )
 
-    return SoundsResponse(sounds=sounds, total=len(sounds))
+    groups = [
+        GroupResponse(name=name, members=members)
+        for name, members in state.groups.items()
+    ]
+
+    return SoundsResponse(sounds=sounds, groups=groups, total=len(sounds))
 
 
 @router.get("/api/sounds/{sound_name}", dependencies=[Depends(no_cache)])
