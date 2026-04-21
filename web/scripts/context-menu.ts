@@ -90,6 +90,7 @@ export function showGroupContextMenu(e: MouseEvent, group: SoundGroup) {
   const items = [
     { label: "Copy Command", action: () => copyGroupCommand(group) },
     { label: "Copy Link", action: () => copyGroupLink(group) },
+    { label: "Properties", action: () => showGroupProperties(group) },
   ];
 
   for (const item of items) {
@@ -218,6 +219,69 @@ function showProperties(sound: Sound) {
     } else {
       valueEl.appendChild(value);
     }
+
+    row.appendChild(labelEl);
+    row.appendChild(valueEl);
+    body.appendChild(row);
+  }
+
+  modal.appendChild(body);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  activeModal = overlay;
+}
+
+function showGroupProperties(group: SoundGroup) {
+  closeModal();
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeModal();
+  });
+
+  const modal = document.createElement("div");
+  modal.className = "modal";
+
+  const header = document.createElement("div");
+  header.className = "modal-header";
+
+  const title = document.createElement("h2");
+  title.textContent = `🎲 ${group.name}`;
+
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "modal-close";
+  closeBtn.textContent = "\u00d7";
+  closeBtn.addEventListener("click", closeModal);
+
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+  modal.appendChild(header);
+
+  const body = document.createElement("div");
+  body.className = "modal-body";
+
+  const props: [string, string | null][] = [
+    ["Members", group.members.length > 0 ? group.members.join(", ") : "Empty"],
+    ["Member Count", `${group.members.length}`],
+    ["Discord Plays", `${group.discord_plays}`],
+    ["Web Plays", `${group.web_plays}`],
+    ["Created", group.created ? formatDate(group.created) : null],
+  ];
+
+  for (const [label, value] of props) {
+    if (value === null) continue;
+
+    const row = document.createElement("div");
+    row.className = "modal-row";
+
+    const labelEl = document.createElement("span");
+    labelEl.className = "modal-label";
+    labelEl.textContent = label;
+
+    const valueEl = document.createElement("span");
+    valueEl.className = "modal-value";
+    valueEl.textContent = value;
 
     row.appendChild(labelEl);
     row.appendChild(valueEl);

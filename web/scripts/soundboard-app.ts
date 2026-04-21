@@ -6,6 +6,7 @@ import {
   isSoundObject,
   isMainAudioActive,
   playMainAudio,
+  stopMainAudio,
 } from "audio";
 import { copy } from "clipboard";
 import { GROUPS_API_PATH, SOUNDS_API_PATH, getRandomPrefix } from "config";
@@ -647,77 +648,44 @@ export class SoundboardApp extends HTMLElement {
 
     if (!sound && !group) return;
 
-    const displayName = sound ? sound.name : group!.name;
-    const isGroup = !sound;
-
-    // Show the deep link modal
+    // Build the overlay — sits below header/controls so they remain usable
     const overlay = document.createElement("div");
-    overlay.className = "modal-overlay";
+    overlay.className = "deep-link-overlay";
 
-    const modal = document.createElement("div");
-    modal.className = "modal deep-link-modal";
+    const card = document.createElement("div");
+    card.className = "deep-link-card";
 
-    const header = document.createElement("div");
-    header.className = "modal-header";
+    // Create a real sound button or group button with full behavior
+    let button: HTMLElement;
+    if (sound) {
+      button = document.createElement("soundboard-button");
+      button.setAttribute("sound", JSON.stringify(sound));
+      button.setAttribute("sort", this.sort ?? "");
+      button.setAttribute("singleplay", "true");
+      button.dataset.copyText = `${getRandomPrefix()}${sound.name}`;
+    } else {
+      button = this.createGroupButton(group!);
+    }
+    button.classList.add("deep-link-button");
 
-    const title = document.createElement("h2");
-    title.textContent = displayName;
-
-    const closeBtn = document.createElement("button");
-    closeBtn.className = "modal-close";
-    closeBtn.textContent = "\u00d7";
-
-    header.appendChild(title);
-    header.appendChild(closeBtn);
-    modal.appendChild(header);
-
-    const body = document.createElement("div");
-    body.className = "modal-body deep-link-body";
-
-    const typeLabel = document.createElement("div");
-    typeLabel.className = "deep-link-type";
-    typeLabel.textContent = isGroup ? "🎲 Group" : "🔊 Sound";
-    body.appendChild(typeLabel);
-
-    const playBtn = document.createElement("button");
-    playBtn.className = "deep-link-play";
-    playBtn.textContent = "▶ Play";
-    body.appendChild(playBtn);
-
-    modal.appendChild(body);
-    overlay.appendChild(modal);
+    card.appendChild(button);
+    overlay.appendChild(card);
     document.body.appendChild(overlay);
 
-    const close = () => overlay.remove();
+    const close = () => {
+      stopMainAudio();
+      overlay.remove();
+    };
 
     overlay.addEventListener("click", (e) => {
       if (e.target === overlay) close();
     });
-
-    closeBtn.addEventListener("click", close);
 
     document.addEventListener("keydown", function handler(e) {
       if (e.key === "Escape") {
         close();
         document.removeEventListener("keydown", handler);
       }
-    });
-
-    playBtn.addEventListener("click", () => {
-      if (sound) {
-        playMainAudio(sound);
-      } else if (group) {
-        const member = this.pickFromGroup(group);
-        const memberSound = this.sounds.find((s) => s.name === member);
-        if (memberSound) {
-          playMainAudio(memberSound);
-          // Record group play
-          fetch(`${GROUPS_API_PATH}/${encodeURIComponent(group.name)}/play`, {
-            method: "POST",
-          }).catch(() => {});
-        }
-      }
-      close();
     });
   }
 
