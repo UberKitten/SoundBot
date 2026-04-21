@@ -666,7 +666,6 @@ export class SoundboardApp extends HTMLElement {
     } else {
       button = this.createGroupButton(group!);
     }
-    button.classList.add("deep-link-button");
 
     card.appendChild(button);
     overlay.appendChild(card);
