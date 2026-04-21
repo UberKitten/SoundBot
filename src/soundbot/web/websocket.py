@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime
-from typing import Set
+from typing import Optional, Set
 
 from fastapi import WebSocket
 from pydantic import BaseModel
@@ -29,6 +29,10 @@ class GroupUpdateEvent(BaseModel):
     members: list[str]
     # Action: "add", "edit", "delete"
     action: str
+    created: Optional[datetime] = None
+    discord_plays: int = 0
+    twitch_plays: int = 0
+    web_plays: int = 0
 
 
 class WebSocketManager:
@@ -85,13 +89,24 @@ class WebSocketManager:
         logger.debug(f"Broadcast sound update: {sound_name} ({action})")
 
     async def broadcast_group_update(
-        self, group_name: str, members: list[str], action: str = "edit"
+        self,
+        group_name: str,
+        members: list[str],
+        action: str = "edit",
+        created: Optional[datetime] = None,
+        discord_plays: int = 0,
+        twitch_plays: int = 0,
+        web_plays: int = 0,
     ):
         """Broadcast a group update event to all clients."""
         event = GroupUpdateEvent(
             group_name=group_name,
             members=members,
             action=action,
+            created=created,
+            discord_plays=discord_plays,
+            twitch_plays=twitch_plays,
+            web_plays=web_plays,
         )
         await self.broadcast(event.model_dump_json())
         logger.debug(f"Broadcast group update: {group_name} ({action})")

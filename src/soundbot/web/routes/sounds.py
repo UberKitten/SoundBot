@@ -43,8 +43,15 @@ async def get_sounds():
         )
 
     groups = [
-        GroupResponse(name=name, members=members)
-        for name, members in state.groups.items()
+        GroupResponse(
+            name=name,
+            members=group.members,
+            created=group.created,
+            discord_plays=group.discord.plays,
+            twitch_plays=group.twitch.plays,
+            web_plays=group.web.plays,
+        )
+        for name, group in state.groups.items()
     ]
 
     return SoundsResponse(sounds=sounds, groups=groups, total=len(sounds))
@@ -86,6 +93,21 @@ async def record_web_play(sound_name: str):
 
     sound.web.plays += 1
     sound.web.last_played = datetime.now()
+    state.save()
+
+    return {"ok": True}
+
+
+@router.post("/api/groups/{group_name}/play")
+async def record_group_web_play(group_name: str):
+    """Record a web UI play for a group."""
+    group_lower = group_name.lower()
+    group = state.groups.get(group_lower)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    group.web.plays += 1
+    group.web.last_played = datetime.now()
     state.save()
 
     return {"ok": True}

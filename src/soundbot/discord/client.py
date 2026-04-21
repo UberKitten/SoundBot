@@ -569,7 +569,7 @@ class SoundCommands(commands.Cog):
             if not groups:
                 _ = await interaction.response.send_message("No groups yet")
             else:
-                lines = [f"**{name}** ({len(members)})" for name, members in groups.items()]
+                lines = [f"**{name}** ({len(group.members)})" for name, group in groups.items()]
                 _ = await interaction.response.send_message(
                     f"🎲 Groups: {', '.join(lines)}"
                 )

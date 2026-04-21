@@ -84,6 +84,18 @@ class Sound(BaseModel):
     web: Stats = Field(default_factory=Stats)
 
 
+class SoundGroupData(BaseModel):
+    """Persistent data for a sound group."""
+
+    members: list[str] = Field(default_factory=list)
+    created: datetime = Field(default_factory=datetime.now)
+
+    # Usage statistics per platform
+    discord: Stats = Field(default_factory=Stats)
+    twitch: Stats = Field(default_factory=Stats)
+    web: Stats = Field(default_factory=Stats)
+
+
 class SoundOut(Sound):
     """Used for including the name of the sound in the JSON response."""
 

@@ -1,4 +1,4 @@
-import { Sound, getSoundPath } from "audio";
+import { Sound, SoundGroup, getSoundPath } from "audio";
 import { copyToClipboard } from "clipboard";
 import { getRandomPrefix } from "config";
 
@@ -21,8 +21,9 @@ function closeModal() {
 
 document.addEventListener("click", closeMenu);
 document.addEventListener("contextmenu", (e) => {
-  // Close menu if right-clicking outside a sound button
-  if (!(e.target as HTMLElement).closest("soundboard-button")) {
+  // Close menu if right-clicking outside a sound button or group button
+  const target = e.target as HTMLElement;
+  if (!target.closest("soundboard-button") && !target.closest(".group-button")) {
     closeMenu();
   }
 });
@@ -43,6 +44,7 @@ export function showContextMenu(e: MouseEvent, sound: Sound) {
 
   const items = [
     { label: "Copy Command", action: () => copyCommand(sound) },
+    { label: "Copy Link", action: () => copyLink(sound) },
     { label: "Download", action: () => downloadSound(sound) },
     { label: "Properties", action: () => showProperties(sound) },
   ];
@@ -78,9 +80,69 @@ export function showContextMenu(e: MouseEvent, sound: Sound) {
   menu.style.top = `${y}px`;
 }
 
+export function showGroupContextMenu(e: MouseEvent, group: SoundGroup) {
+  e.preventDefault();
+  closeMenu();
+
+  const menu = document.createElement("div");
+  menu.className = "context-menu";
+
+  const items = [
+    { label: "Copy Command", action: () => copyGroupCommand(group) },
+    { label: "Copy Link", action: () => copyGroupLink(group) },
+  ];
+
+  for (const item of items) {
+    const el = document.createElement("div");
+    el.className = "context-menu-item";
+    el.textContent = item.label;
+    el.addEventListener("click", (clickEvent) => {
+      clickEvent.stopPropagation();
+      closeMenu();
+      item.action();
+    });
+    menu.appendChild(el);
+  }
+
+  document.body.appendChild(menu);
+  activeMenu = menu;
+
+  // Position menu, keeping it within viewport
+  const rect = menu.getBoundingClientRect();
+  let x = e.clientX;
+  let y = e.clientY;
+
+  if (x + rect.width > window.innerWidth) {
+    x = window.innerWidth - rect.width - 4;
+  }
+  if (y + rect.height > window.innerHeight) {
+    y = window.innerHeight - rect.height - 4;
+  }
+
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+}
+
+function copyGroupCommand(group: SoundGroup) {
+  const command = `${getRandomPrefix()}${group.name}`;
+  copyToClipboard(command);
+}
+
+function copyGroupLink(group: SoundGroup) {
+  const url = new URL(window.location.origin);
+  url.searchParams.set("sound", group.name);
+  copyToClipboard(url.href);
+}
+
 function copyCommand(sound: Sound) {
   const command = `${getRandomPrefix()}${sound.name}`;
   copyToClipboard(command);
+}
+
+function copyLink(sound: Sound) {
+  const url = new URL(window.location.origin);
+  url.searchParams.set("sound", sound.name);
+  copyToClipboard(url.href);
 }
 
 function downloadSound(sound: Sound) {

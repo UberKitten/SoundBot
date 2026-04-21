@@ -471,6 +471,40 @@ label {
   color: inherit;
 }
 
+/* Deep link modal */
+
+.deep-link-modal {
+  max-width: 360px;
+}
+
+.deep-link-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--standard-padding);
+  padding: calc(var(--standard-padding) * 2) var(--standard-padding);
+}
+
+.deep-link-type {
+  opacity: 0.7;
+  font-size: 0.9rem;
+}
+
+.deep-link-play {
+  background-color: var(--primary-color);
+  border: none;
+  border-radius: var(--corner-rounding);
+  color: white;
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: var(--standard-padding) calc(var(--standard-padding) * 3);
+  user-select: none;
+}
+
+.deep-link-play:hover {
+  filter: brightness(1.2);
+}
+
 input[type="search"]::-webkit-search-cancel-button {
   -webkit-appearance: none;
   height: 1em;

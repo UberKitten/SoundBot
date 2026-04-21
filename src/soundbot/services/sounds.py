@@ -11,7 +11,7 @@ from typing import Callable, Optional
 
 from soundbot.core.settings import settings
 from soundbot.core.state import state
-from soundbot.models.sounds import Sound, SoundFiles, Timestamps
+from soundbot.models.sounds import Sound, SoundFiles, SoundGroupData, Timestamps
 from soundbot.services.ffmpeg import ffmpeg_service
 from soundbot.services.ytdlp import ytdlp_service
 
@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 SoundUpdateCallback = Callable[[str, datetime, str], None]
 
 # Callback type for group update events
-# Args: (group_name: str, members: list[str], action: str)
-GroupUpdateCallback = Callable[[str, list[str], str], None]
+# Args: (group_name: str, group_data: SoundGroupData, action: str)
+GroupUpdateCallback = Callable[[str, SoundGroupData, str], None]
 
 
 def sanitize_name(name: str) -> str:
@@ -81,11 +81,11 @@ class SoundService:
         """Register a callback for group updates."""
         self._group_update_callbacks.append(callback)
 
-    def _emit_group_update(self, group_name: str, members: list[str], action: str):
+    def _emit_group_update(self, group_name: str, group_data: SoundGroupData, action: str):
         """Emit a group update event to all registered callbacks."""
         for callback in self._group_update_callbacks:
             try:
-                callback(group_name, members, action)
+                callback(group_name, group_data, action)
             except Exception as e:
                 logger.error(f"Error in group update callback: {e}")
 
@@ -175,6 +175,13 @@ class SoundService:
         timings: dict[str, float] = {}
         name_lower = name.lower()
         safe_name = sanitize_name(name)
+
+        # Check for name collision with groups
+        if name_lower in state.groups:
+            return OperationResult(
+                success=False,
+                message=f"'{name}' is already a group name",
+            )
 
         # Check if sound already exists
         existing_sound = state.sounds.get(name_lower)
@@ -359,6 +366,13 @@ class SoundService:
         timings: dict[str, float] = {}
         name_lower = name.lower()
         safe_name = sanitize_name(name)
+
+        # Check for name collision with groups
+        if name_lower in state.groups:
+            return OperationResult(
+                success=False,
+                message=f"'{name}' is already a group name",
+            )
 
         # Check if sound already exists
         existing_sound = state.sounds.get(name_lower)
@@ -827,6 +841,12 @@ class SoundService:
                 message=f"Sound '{new_name}' already exists",
             )
 
+        if new_lower in state.groups:
+            return OperationResult(
+                success=False,
+                message=f"'{new_name}' is already a group name",
+            )
+
         # Move sound to new key
         del state.sounds[old_lower]
         state.sounds[new_lower] = sound
@@ -857,6 +877,13 @@ class SoundService:
             return OperationResult(
                 success=False,
                 message=f"'{alias}' is already a sound name",
+            )
+
+        # Check alias doesn't conflict with a group name
+        if alias_lower in state.groups:
+            return OperationResult(
+                success=False,
+                message=f"'{alias}' is already a group name",
             )
 
         # Check alias doesn't conflict with another sound's alias
@@ -917,7 +944,8 @@ class SoundService:
 
     def resolve_group(self, name: str) -> Optional[list[str]]:
         """Resolve a group name to its list of sound names."""
-        return state.groups.get(name.lower())
+        group = state.groups.get(name.lower())
+        return group.members if group else None
 
     def resolve_group_random(self, name: str) -> Optional[tuple[str, Sound]]:
         """Resolve a group name to a random member using shuffle bag (no repeats until all played)."""
@@ -954,9 +982,9 @@ class SoundService:
                     message=f"'{name}' is already an alias for '{sound_name}'",
                 )
 
-        state.groups[name_lower] = []
+        state.groups[name_lower] = SoundGroupData()
         state.save()
-        self._emit_group_update(name_lower, [], "add")
+        self._emit_group_update(name_lower, state.groups[name_lower], "add")
 
         return OperationResult(success=True, message=f"Created group '{name}'")
 
@@ -968,7 +996,7 @@ class SoundService:
 
         del state.groups[name_lower]
         state.save()
-        self._emit_group_update(name_lower, [], "delete")
+        self._emit_group_update(name_lower, SoundGroupData(), "delete")
 
         return OperationResult(success=True, message=f"Deleted group '{name}'")
 
@@ -986,15 +1014,16 @@ class SoundService:
             return OperationResult(success=False, message=f"Sound '{sound_name}' not found")
         canonical_name = result[0]
 
-        if canonical_name in state.groups[group_lower]:
+        group = state.groups[group_lower]
+        if canonical_name in group.members:
             return OperationResult(
                 success=False,
                 message=f"'{canonical_name}' is already in group '{group_name}'",
             )
 
-        state.groups[group_lower].append(canonical_name)
+        group.members.append(canonical_name)
         state.save()
-        self._emit_group_update(group_lower, state.groups[group_lower], "edit")
+        self._emit_group_update(group_lower, group, "edit")
 
         return OperationResult(
             success=True,
@@ -1011,22 +1040,23 @@ class SoundService:
         result = self.resolve_sound_name(sound_name)
         canonical_name = result[0] if result else sound_name.lower()
 
-        if canonical_name not in state.groups[group_lower]:
+        group = state.groups[group_lower]
+        if canonical_name not in group.members:
             return OperationResult(
                 success=False,
                 message=f"'{canonical_name}' is not in group '{group_name}'",
             )
 
-        state.groups[group_lower].remove(canonical_name)
+        group.members.remove(canonical_name)
         state.save()
-        self._emit_group_update(group_lower, state.groups[group_lower], "edit")
+        self._emit_group_update(group_lower, group, "edit")
 
         return OperationResult(
             success=True,
             message=f"Removed '{canonical_name}' from group '{group_name}'",
         )
 
-    def list_groups(self) -> dict[str, list[str]]:
+    def list_groups(self) -> dict[str, SoundGroupData]:
         """List all groups."""
         return state.groups
 

@@ -42,6 +42,10 @@ export interface Sound {
 export interface SoundGroup {
   name: string;
   members: string[];
+  created: string | null;
+  discord_plays: number;
+  twitch_plays: number;
+  web_plays: number;
 }
 
 export interface AudioGroup {

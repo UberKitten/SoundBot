@@ -12,6 +12,7 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from soundbot.core.settings import settings
+from soundbot.models.sounds import SoundGroupData
 from soundbot.services.sounds import sound_service
 from soundbot.web.routes.router import router
 from soundbot.web.websocket import ws_manager
@@ -46,11 +47,21 @@ def _on_sound_update(name: str, modified: datetime, action: str):
         pass
 
 
-def _on_group_update(name: str, members: list[str], action: str):
+def _on_group_update(name: str, group_data: SoundGroupData, action: str):
     """Bridge callback to async WebSocket broadcast."""
     try:
         loop = asyncio.get_running_loop()
-        _ = loop.create_task(ws_manager.broadcast_group_update(name, members, action))
+        _ = loop.create_task(
+            ws_manager.broadcast_group_update(
+                name,
+                group_data.members,
+                action,
+                created=group_data.created,
+                discord_plays=group_data.discord.plays,
+                twitch_plays=group_data.twitch.plays,
+                web_plays=group_data.web.plays,
+            )
+        )
     except RuntimeError:
         pass
 

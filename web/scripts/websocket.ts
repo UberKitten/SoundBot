@@ -16,6 +16,10 @@ export interface GroupUpdateEvent {
   group_name: string;
   members: string[];
   action: "add" | "edit" | "delete";
+  created: string | null;
+  discord_plays: number;
+  twitch_plays: number;
+  web_plays: number;
 }
 
 type SoundUpdateCallback = (event: SoundUpdateEvent) => void;

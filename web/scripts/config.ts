@@ -1,4 +1,5 @@
 export const SOUNDS_API_PATH = "/api/sounds";
+export const GROUPS_API_PATH = "/api/groups";
 export const SOUNDS_PATH = "/sounds";
 export const SETTINGS_PATH = "/api/settings";
 

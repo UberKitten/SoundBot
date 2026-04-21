@@ -3,13 +3,13 @@ import fcntl
 import logging
 import sys
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
 
 import orjson
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from soundbot.core.settings import settings
-from soundbot.models.sounds import Sound
+from soundbot.models.sounds import Sound, SoundGroupData
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,18 @@ class State(BaseModel):
     exits: Dict[str, str] = {}
 
     sounds: Dict[str, Sound] = {}
-    groups: Dict[str, list[str]] = {}
+    groups: Dict[str, SoundGroupData] = {}
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_groups(cls, data: Any) -> Any:
+        """Migrate groups from old list[str] format to SoundGroupData."""
+        if isinstance(data, dict) and "groups" in data:
+            groups = data["groups"]
+            for name, value in groups.items():
+                if isinstance(value, list):
+                    groups[name] = {"members": value}
+        return data
 
     def save(self):
         _ = Path(settings.state_file).write_text(
