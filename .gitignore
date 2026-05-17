@@ -167,3 +167,5 @@ docker-compose.local.yml
 
 # Traefik docker compose file
 docker-compose.override.yml
+compose.yaml
+compose.override.yaml
