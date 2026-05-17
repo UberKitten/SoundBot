@@ -1,6 +1,6 @@
 services:
   soundbot:
-    build: .
+    image: ghcr.io/uberkitten/soundbot:latest
     hostname: ${DOCKER_HOSTNAME}
     ports:
       - ${SOUNDBOT_PORT_8080}:8080
