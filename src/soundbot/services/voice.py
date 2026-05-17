@@ -159,11 +159,20 @@ class VoiceService:
             await state.voice_client.move_to(channel)
             return state.voice_client
 
-        # Clean up any stale voice client
+        # Clean up any stale voice client.
+        # The websocket is already dead (is_connected() returned False), so the public
+        # disconnect() would block for ~self.timeout seconds waiting for a
+        # voice_state_update confirmation that Discord won't send (it considers us
+        # already gone). Call the inner disconnect with wait=False to release the
+        # socket/thread without that wait, then cleanup().
         if state.voice_client:
             logger.warning("Found stale voice client, cleaning up...")
             try:
-                await state.voice_client.disconnect(force=True)
+                state.voice_client.stop()
+                await state.voice_client._connection.disconnect(
+                    force=True, wait=False
+                )
+                state.voice_client.cleanup()
             except Exception:
                 pass
             state.voice_client = None
@@ -172,7 +181,7 @@ class VoiceService:
             logger.info(
                 f"Connecting to voice channel: {channel.name} (ID: {channel.id}) in guild: {channel.guild.name}"
             )
-            voice_client = await channel.connect(timeout=10.0, reconnect=False)
+            voice_client = await channel.connect(timeout=10.0, reconnect=True)
             state.voice_client = voice_client
             logger.info(f"Successfully connected to {channel.name}")
             return voice_client
@@ -184,7 +193,11 @@ class VoiceService:
             # Clean up failed connection attempt
             if state.voice_client:
                 try:
-                    await state.voice_client.disconnect(force=True)
+                    state.voice_client.stop()
+                    await state.voice_client._connection.disconnect(
+                        force=True, wait=False
+                    )
+                    state.voice_client.cleanup()
                 except Exception:
                     pass
                 state.voice_client = None
