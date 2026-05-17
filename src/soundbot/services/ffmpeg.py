@@ -24,6 +24,7 @@ class ProbeResult(BaseModel):
     audio_codec: Optional[str] = None
     sample_rate: Optional[int] = None
     channels: Optional[int] = None
+    title: Optional[str] = None
 
 
 class ProcessResult(BaseModel):
@@ -67,9 +68,17 @@ class FFmpegService:
 
             result = ProbeResult()
 
-            # Get duration from format
-            if "format" in data and "duration" in data["format"]:
-                result.duration = float(data["format"]["duration"])
+            # Get duration and title from format
+            if "format" in data:
+                fmt = data["format"]
+                if "duration" in fmt:
+                    result.duration = float(fmt["duration"])
+                tags = fmt.get("tags") or {}
+                # mkv tags are case-insensitive; ffprobe tends to lowercase but be defensive
+                for key in ("title", "TITLE", "Title"):
+                    if key in tags and tags[key]:
+                        result.title = str(tags[key])
+                        break
 
             # Analyze streams
             for stream in data.get("streams", []):

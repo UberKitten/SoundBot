@@ -39,6 +39,31 @@ def main():
         help="Remove broken entries from state (doesn't delete files)",
     )
 
+    # Clip command
+    clip_parser = subparsers.add_parser(
+        "clip",
+        help="Create a sound by clipping a local video file (no copy of source)",
+    )
+    _ = clip_parser.add_argument("video", type=str, help="Path to video file")
+    _ = clip_parser.add_argument("name", type=str, help="Sound name")
+    _ = clip_parser.add_argument(
+        "start", type=str, help="Start time (HH:MM:SS, MM:SS, or seconds)"
+    )
+    _ = clip_parser.add_argument(
+        "end", type=str, help="End time (HH:MM:SS, MM:SS, or seconds)"
+    )
+    _ = clip_parser.add_argument(
+        "--volume",
+        type=int,
+        default=0,
+        help="Volume adjustment in notches (-5 to +3, each notch = 3dB)",
+    )
+    _ = clip_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite an existing sound with the same name",
+    )
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -58,6 +83,20 @@ def main():
         from soundbot.cli.check_sounds import check_sounds
 
         check_sounds(remove_broken=args.remove)
+    elif args.command == "clip":
+        from soundbot.cli.clip import clip_video
+
+        exit_code = asyncio.run(
+            clip_video(
+                video=args.video,
+                start=args.start,
+                end=args.end,
+                name=args.name,
+                volume_adjust=args.volume,
+                overwrite=args.overwrite,
+            )
+        )
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":

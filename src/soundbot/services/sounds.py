@@ -35,6 +35,22 @@ def sanitize_name(name: str) -> str:
     return name[:50]  # Limit length
 
 
+def clean_release_filename(stem: str) -> str:
+    """Strip Sonarr/Radarr release tags from a filename stem.
+
+    Sonarr: '{Series TitleYear} - S00E00 - {Episode CleanTitle} [TAG][TAG]-Group'
+    Radarr: '{Movie CleanTitle} (Year) {tmdb-12345} - {edition-X} [TAG][TAG]-Group'
+
+    Everything after the title starts with either ` [` (tags) or ` {` (tmdb/tvdb
+    IDs, edition markers). The title itself never contains either, so cutting at
+    the earliest of the two yields the clean title in both schemes.
+    """
+    candidates = [i for i in (stem.find(" ["), stem.find(" {")) if i >= 0]
+    if candidates:
+        stem = stem[: min(candidates)]
+    return stem.strip()
+
+
 @dataclass
 class OperationResult:
     """Result of a sound operation with timing information."""
@@ -325,6 +341,157 @@ class SoundService:
 
         title_info = f" ({download_result.title})" if download_result.title else ""
         action = "Replaced" if overwrite else "Added"
+        return OperationResult(
+            success=True,
+            message=f"{action} sound '{name}'{title_info}",
+            timings=timings,
+        )
+
+    async def add_sound_from_video_path(
+        self,
+        name: str,
+        video_path: Path,
+        start: Optional[float] = None,
+        end: Optional[float] = None,
+        volume_adjust: int = 0,
+        overwrite: bool = False,
+        added_by: Optional[str] = None,
+    ) -> OperationResult:
+        """
+        Add a new sound clipped from an existing video file on disk.
+
+        Unlike add_sound (yt-dlp) or add_sound_from_file (upload), the source
+        video is NOT copied into sounds_dir. files.original is stored as an
+        absolute path to the external file so future operations (regen,
+        timestamp edits) can find it as long as the file is still reachable.
+        """
+        timings: dict[str, float] = {}
+        name_lower = name.lower()
+        safe_name = sanitize_name(name)
+
+        if not video_path.exists():
+            return OperationResult(
+                success=False,
+                message=f"Video file not found: {video_path}",
+            )
+
+        if name_lower in state.groups:
+            return OperationResult(
+                success=False,
+                message=f"'{name}' is already a group name",
+            )
+
+        existing_sound = state.sounds.get(name_lower)
+        if existing_sound:
+            if not overwrite:
+                return OperationResult(
+                    success=False,
+                    message=f"Sound '{name}' already exists. Pass --overwrite to replace it.",
+                )
+            old_sound_dir = self.sounds_dir / existing_sound.directory
+            if old_sound_dir.exists():
+                shutil.rmtree(old_sound_dir)
+            old_discord_plays = existing_sound.discord.plays
+            old_twitch_plays = existing_sound.twitch.plays
+            old_web_plays = existing_sound.web.plays
+            old_aliases = existing_sound.aliases
+            old_created = existing_sound.created
+            old_added_by = existing_sound.added_by
+        else:
+            old_discord_plays = 0
+            old_twitch_plays = 0
+            old_web_plays = 0
+            old_aliases: list[str] = []
+            old_created = None
+            old_added_by = None
+
+        # Probe source for title + duration before we do work
+        probe = await ffmpeg_service.probe(video_path)
+        if not probe or not probe.has_audio:
+            return OperationResult(
+                success=False,
+                message="Source has no audio stream",
+            )
+
+        sound_dir = self.get_sound_dir(name)
+        sound_dir.mkdir(parents=True, exist_ok=True)
+
+        # Process audio for Discord
+        audio_file = sound_dir / f"{safe_name}.ogg"
+        volume_db = volume_adjust * 3.0
+        audio_result = await ffmpeg_service.extract_and_normalize_audio(
+            video_path,
+            audio_file,
+            start=start,
+            end=end,
+            volume_db=volume_db,
+        )
+        if audio_result.duration_seconds:
+            timings["Audio processing"] = audio_result.duration_seconds
+
+        if not audio_result.success:
+            shutil.rmtree(sound_dir)
+            return OperationResult(
+                success=False,
+                message=f"Failed to process audio: {audio_result.error}",
+                timings=timings,
+            )
+
+        # Trim video as well (web preview path looks for this when video present)
+        trimmed_video_file = None
+        if probe.has_video:
+            video_out = sound_dir / f"{safe_name}_trimmed.mkv"
+            video_result = await ffmpeg_service.trim_video(
+                video_path,
+                video_out,
+                start=start,
+                end=end,
+            )
+            if video_result.success:
+                trimmed_video_file = video_out.name
+            if video_result.duration_seconds:
+                timings["Video trimming"] = video_result.duration_seconds
+
+        final_created = old_created or datetime.now()
+        final_added_by = added_by or old_added_by
+
+        sound = Sound(
+            directory=safe_name,
+            files=SoundFiles(
+                # Absolute path; pathlib's / operator preserves absolute RHS
+                # so `sound_dir / sound.files.original` resolves correctly.
+                original=str(video_path.resolve()),
+                trimmed_video=trimmed_video_file,
+                trimmed_audio=audio_file.name,
+                metadata=None,
+                subtitles=None,
+            ),
+            source_url=None,
+            # Fall back to filename stem when the container has no embedded title
+            # (most rips do not — VLC fabricates one from the filename).
+            source_title=probe.title or clean_release_filename(video_path.stem),
+            source_duration=probe.duration,
+            timestamps=Timestamps(start=start, end=end),
+            volume_adjust=volume_adjust,
+            created=final_created,
+            added_by=final_added_by,
+        )
+
+        if old_discord_plays > 0 or old_twitch_plays > 0 or old_web_plays > 0:
+            sound.discord.plays = old_discord_plays
+            sound.twitch.plays = old_twitch_plays
+            sound.web.plays = old_web_plays
+        if old_aliases:
+            sound.aliases = old_aliases
+
+        state.sounds[name_lower] = sound
+        _ = state.save()
+
+        emit_action = "edit" if existing_sound else "add"
+        self._emit_update(name_lower, sound.modified, emit_action)
+
+        title_info = f" ({probe.title})" if probe.title else ""
+        action = "Replaced" if existing_sound else "Added"
         return OperationResult(
             success=True,
             message=f"{action} sound '{name}'{title_info}",
