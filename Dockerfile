@@ -55,4 +55,10 @@ RUN uv pip install --python .venv/bin/python ./dist/*.whl
 # Update yt-dlp to latest version at build time
 RUN ./.venv/bin/yt-dlp --update || true
 
+# Run as non-root so bind-mounted host dirs (sounds/, config/) get the
+# expected ownership (uid 1000) instead of root.
+RUN useradd -u 1000 -m -s /bin/bash soundbot && \
+    chown -R soundbot:soundbot /app
+USER soundbot
+
 CMD ./.venv/bin/python -m soundbot
