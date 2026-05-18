@@ -47,6 +47,7 @@ async def get_sounds():
             name=name,
             members=group.members,
             created=group.created,
+            random_mode=group.random_mode,
             discord_plays=group.discord.plays,
             twitch_plays=group.twitch.plays,
             web_plays=group.web.plays,

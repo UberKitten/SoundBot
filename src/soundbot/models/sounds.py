@@ -1,7 +1,10 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
+
+
+RandomMode = Literal["together", "separate"]
 
 
 class Timestamps(BaseModel):
@@ -89,6 +92,11 @@ class SoundGroupData(BaseModel):
 
     members: list[str] = Field(default_factory=list)
     created: datetime = Field(default_factory=datetime.now)
+
+    # How members enter /random. "together": the group occupies one slot and a
+    # member is picked from it (so a 100-sound group doesn't dominate pulls).
+    # "separate": each member competes individually like ungrouped sounds.
+    random_mode: RandomMode = "together"
 
     # Usage statistics per platform
     discord: Stats = Field(default_factory=Stats)

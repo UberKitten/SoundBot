@@ -11,7 +11,13 @@ from typing import Callable, Optional
 
 from soundbot.core.settings import settings
 from soundbot.core.state import state
-from soundbot.models.sounds import Sound, SoundFiles, SoundGroupData, Timestamps
+from soundbot.models.sounds import (
+    RandomMode,
+    Sound,
+    SoundFiles,
+    SoundGroupData,
+    Timestamps,
+)
 from soundbot.services.ffmpeg import ffmpeg_service
 from soundbot.services.ytdlp import ytdlp_service
 
@@ -1222,6 +1228,33 @@ class SoundService:
             success=True,
             message=f"Removed '{canonical_name}' from group '{group_name}'",
         )
+
+    def set_group_random_mode(
+        self, group_name: str, random_mode: RandomMode
+    ) -> OperationResult:
+        """Set how /random treats a group's members ('together' or 'separate')."""
+        group_lower = group_name.lower()
+        group = state.groups.get(group_lower)
+        if group is None:
+            return OperationResult(
+                success=False, message=f"Group '{group_name}' not found"
+            )
+
+        if group.random_mode == random_mode:
+            return OperationResult(
+                success=False,
+                message=f"Group '{group_name}' is already random_mode={random_mode}",
+            )
+
+        group.random_mode = random_mode
+        state.save()
+        self._emit_group_update(group_lower, group, "edit")
+
+        if random_mode == "together":
+            msg = f"Group '{group_name}' members now enter /random together (one slot)"
+        else:
+            msg = f"Group '{group_name}' members now enter /random separately (one slot each)"
+        return OperationResult(success=True, message=msg)
 
     def list_groups(self) -> dict[str, SoundGroupData]:
         """List all groups."""

@@ -57,6 +57,7 @@ def _on_group_update(name: str, group_data: SoundGroupData, action: str):
                 group_data.members,
                 action,
                 created=group_data.created,
+                random_mode=group_data.random_mode,
                 discord_plays=group_data.discord.plays,
                 twitch_plays=group_data.twitch.plays,
                 web_plays=group_data.web.plays,

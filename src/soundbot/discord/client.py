@@ -4,7 +4,7 @@ import random
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, override
+from typing import Optional, cast, override
 
 import discord
 from discord import Interaction, app_commands
@@ -13,6 +13,7 @@ from discord.ext import commands
 from soundbot.core.settings import settings
 from soundbot.core.state import state
 from soundbot.core.utils import parse_timestamp
+from soundbot.models.sounds import RandomMode
 from soundbot.services.ffmpeg import ffmpeg_service
 from soundbot.services.sounds import sound_service
 from soundbot.services.voice import voice_service
@@ -335,14 +336,29 @@ class SoundCommands(commands.Cog):
         _ = await interaction.followup.send(f"{emoji} {result.full_message()}")
 
     @app_commands.command(name="info")
-    @app_commands.describe(name="Name of the sound")
+    @app_commands.describe(name="Name of the sound or group")
     async def sound_info(self, interaction: Interaction, name: str):
-        """Get information about a sound."""
+        """Get information about a sound or group."""
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
+
+        # If it's a group, show group info
+        group_members = sound_service.resolve_group(name)
+        if group_members is not None:
+            embed = discord.Embed(
+                title=f"🎲 Group: {name}",
+                description=", ".join(group_members) if group_members else "(empty)",
+                color=discord.Color.purple(),
+            )
+            _ = embed.add_field(name="Members", value=str(len(group_members)), inline=True)
+            _ = await interaction.response.send_message(embed=embed)
+            return
+
         sound = sound_service.get_sound(name)
         if not sound:
-            _ = await interaction.response.send_message(f"❌ Sound '{name}' not found")
+            _ = await interaction.response.send_message(
+                f"❌ Sound or group '{name}' not found"
+            )
             return
 
         embed = discord.Embed(title=f"🔊 {name}", color=discord.Color.blue())
@@ -548,6 +564,37 @@ class SoundCommands(commands.Cog):
         emoji = "✅" if result.success else "❌"
         _ = await interaction.response.send_message(f"{emoji} {result.message}")
 
+    @group_cmd.command(name="random")
+    @app_commands.describe(
+        name="Name of the group",
+        mode="How members enter /random",
+    )
+    @app_commands.choices(
+        mode=[
+            app_commands.Choice(
+                name="together (default: one slot for the whole group)",
+                value="together",
+            ),
+            app_commands.Choice(
+                name="separate (each member competes individually)",
+                value="separate",
+            ),
+        ]
+    )
+    async def group_random(
+        self,
+        interaction: Interaction,
+        name: str,
+        mode: app_commands.Choice[str],
+    ):
+        """Set how a group's members enter /random."""
+        # discord.py guarantees mode.value matches one of our Choice values
+        result = sound_service.set_group_random_mode(
+            name, cast(RandomMode, mode.value)
+        )
+        emoji = "✅" if result.success else "❌"
+        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+
     @group_cmd.command(name="list")
     @app_commands.describe(name="Group name (omit to list all groups)")
     async def group_list(self, interaction: Interaction, name: Optional[str] = None):
@@ -575,42 +622,93 @@ class SoundCommands(commands.Cog):
                 )
 
     @app_commands.command(name="random")
-    async def random_sound(self, interaction: Interaction):
-        """Play a random sound (max 2 minutes)."""
-        # Get all sounds
-        all_sounds = sound_service.list_sounds()
-        if not all_sounds:
-            _ = await interaction.response.send_message("❌ No sounds available")
-            return
+    @app_commands.describe(group="Optional group to pick from")
+    async def random_sound(
+        self, interaction: Interaction, group: Optional[str] = None
+    ):
+        """Play a random sound (max 2 minutes).
 
-        # Filter to sounds under 2 minutes (120 seconds)
+        Without a group, treats each random_mode="together" group as one slot (so a
+        group of 100 taunts doesn't dominate). With a group, picks a random
+        eligible member of that group.
+        """
         MAX_DURATION = 120.0
-        eligible = []
-        for name, sound in all_sounds.items():
-            # Calculate effective duration
+
+        def is_eligible(name: str) -> bool:
+            sound = sound_service.get_sound(name)
+            if not sound:
+                return False
             duration = None
             if sound.timestamps.start is not None or sound.timestamps.end is not None:
-                # Use trimmed duration
                 start = sound.timestamps.start or 0
                 end = sound.timestamps.end or sound.source_duration
                 if end:
                     duration = end - start
             elif sound.source_duration:
-                # Use original duration
                 duration = sound.source_duration
+            return duration is None or duration <= MAX_DURATION
 
-            # Include if under limit or duration unknown
-            if duration is None or duration <= MAX_DURATION:
-                eligible.append(name)
+        # If a group is specified, pick from just that group
+        if group is not None:
+            members = sound_service.resolve_group(group)
+            if members is None:
+                _ = await interaction.response.send_message(
+                    f"❌ Group '{group}' not found"
+                )
+                return
+            eligible_members = [n for n in members if is_eligible(n)]
+            if not eligible_members:
+                _ = await interaction.response.send_message(
+                    f"❌ No sounds under 2 minutes in group '{group}'"
+                )
+                return
+            name = random.choice(eligible_members)
+        else:
+            all_sounds = sound_service.list_sounds()
+            if not all_sounds:
+                _ = await interaction.response.send_message("❌ No sounds available")
+                return
 
-        if not eligible:
-            _ = await interaction.response.send_message(
-                "❌ No sounds under 2 minutes available"
+            # Members of random_mode="together" groups are excluded from the
+            # individual pool — they're represented by the group's single slot.
+            group_owned: set[str] = set()
+            together_groups: list[tuple[str, list[str]]] = []
+            for group_name, group_data in sound_service.list_groups().items():
+                if group_data.random_mode != "together":
+                    continue
+                eligible_members = [n for n in group_data.members if is_eligible(n)]
+                if not eligible_members:
+                    # Empty groups (or all-too-long) get no slot. Still mark
+                    # members as owned so they don't appear in the individual
+                    # pool — otherwise switching to random_mode="together" on a
+                    # group with only long sounds wouldn't change /random.
+                    group_owned.update(group_data.members)
+                    continue
+                together_groups.append((group_name, eligible_members))
+                group_owned.update(group_data.members)
+
+            individual_eligible = [
+                n for n in all_sounds if n not in group_owned and is_eligible(n)
+            ]
+
+            # Total candidate slots: individuals + one per together-group
+            if not individual_eligible and not together_groups:
+                _ = await interaction.response.send_message(
+                    "❌ No sounds under 2 minutes available"
+                )
+                return
+
+            slot_index = random.randrange(
+                len(individual_eligible) + len(together_groups)
             )
-            return
+            if slot_index < len(individual_eligible):
+                name = individual_eligible[slot_index]
+            else:
+                _, group_members = together_groups[
+                    slot_index - len(individual_eligible)
+                ]
+                name = random.choice(group_members)
 
-        # Pick random sound
-        name = random.choice(eligible)
         audio_path = sound_service.get_audio_path(name)
         if not audio_path:
             _ = await interaction.response.send_message(f"❌ Sound '{name}' not found")
@@ -742,33 +840,28 @@ class QueueCog(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="playnext")
-    @app_commands.describe(name="Name of the sound")
+    @app_commands.describe(name="Name of the sound or group")
     async def play_next_slash(self, interaction: Interaction, name: str):
-        """Add a sound to play next in the queue."""
+        """Add a sound to play next in the queue. Accepts a group name (random member)."""
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
-        audio_path = sound_service.get_audio_path(name)
-        if not audio_path:
-            # Try partial match
+        resolved = sound_service.resolve_playable(name)
+        if not resolved:
             matches = sound_service.search_sounds(name)
-            if len(matches) == 1:
-                audio_path = sound_service.get_audio_path(matches[0][0])
-                name = matches[0][0]
-            elif len(matches) > 1:
+            if len(matches) > 1:
                 names = [n for n, _ in matches[:5]]
                 _ = await interaction.response.send_message(
                     f"❌ Multiple matches: {', '.join(names)}"
                     + (" ..." if len(matches) > 5 else "")
                 )
-                return
             else:
                 _ = await interaction.response.send_message(
-                    f"❌ Sound '{name}' not found"
+                    f"❌ Sound or group '{name}' not found"
                 )
-                return
+            return
+        name, audio_path = resolved
 
         assert interaction.guild is not None  # Commands only work in guilds
-        assert audio_path is not None  # Checked above with early returns
         member = (
             interaction.guild.get_member(interaction.user.id)
             if interaction.guild
@@ -788,33 +881,28 @@ class QueueCog(commands.Cog):
         _ = await interaction.response.send_message(f"{emoji} {message}")
 
     @app_commands.command(name="playnow")
-    @app_commands.describe(name="Name of the sound")
+    @app_commands.describe(name="Name of the sound or group")
     async def play_now_slash(self, interaction: Interaction, name: str):
-        """Play a sound immediately, pausing the current sound."""
+        """Play a sound immediately, pausing the current sound. Accepts a group name (random member)."""
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
-        audio_path = sound_service.get_audio_path(name)
-        if not audio_path:
-            # Try partial match
+        resolved = sound_service.resolve_playable(name)
+        if not resolved:
             matches = sound_service.search_sounds(name)
-            if len(matches) == 1:
-                audio_path = sound_service.get_audio_path(matches[0][0])
-                name = matches[0][0]
-            elif len(matches) > 1:
+            if len(matches) > 1:
                 names = [n for n, _ in matches[:5]]
                 _ = await interaction.response.send_message(
                     f"❌ Multiple matches: {', '.join(names)}"
                     + (" ..." if len(matches) > 5 else "")
                 )
-                return
             else:
                 _ = await interaction.response.send_message(
-                    f"❌ Sound '{name}' not found"
+                    f"❌ Sound or group '{name}' not found"
                 )
-                return
+            return
+        name, audio_path = resolved
 
         assert interaction.guild is not None  # Commands only work in guilds
-        assert audio_path is not None  # Checked above with early returns
         member = (
             interaction.guild.get_member(interaction.user.id)
             if interaction.guild
@@ -900,9 +988,9 @@ class QueueCog(commands.Cog):
         _ = await interaction.response.send_message(f"{emoji} {message}")
 
     @app_commands.command(name="loop")
-    @app_commands.describe(name="Name of the sound to loop")
+    @app_commands.describe(name="Name of the sound or group to loop")
     async def loop_sound(self, interaction: Interaction, name: str):
-        """Loop a sound until stopped."""
+        """Loop a sound until stopped. Accepts a group name (picks a random member)."""
         if not interaction.guild:
             _ = await interaction.response.send_message(
                 "❌ This command must be used in a server"
@@ -911,10 +999,13 @@ class QueueCog(commands.Cog):
 
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
-        audio_path = sound_service.get_audio_path(name)
-        if not audio_path:
-            _ = await interaction.response.send_message(f"❌ Sound '{name}' not found")
+        resolved = sound_service.resolve_playable(name)
+        if not resolved:
+            _ = await interaction.response.send_message(
+                f"❌ Sound or group '{name}' not found"
+            )
             return
+        name, audio_path = resolved
 
         # Get duration for display
         duration = sound_service.get_sound_duration(name)
@@ -1146,29 +1237,24 @@ class PlaybackCog(commands.Cog):
 
     @commands.command(name="next", aliases=["playnext"])
     async def play_next(self, ctx: commands.Context[SoundBot], *, sound_name: str):
-        """Add a sound to play next in the queue."""
+        """Add a sound to play next in the queue. Accepts a group name (random member)."""
         # Strip any command prefix from the name
         sound_name = strip_command_prefix(sound_name)
-        audio_path = sound_service.get_audio_path(sound_name)
-        if not audio_path:
-            # Try partial match
+        resolved = sound_service.resolve_playable(sound_name)
+        if not resolved:
             matches = sound_service.search_sounds(sound_name)
-            if len(matches) == 1:
-                audio_path = sound_service.get_audio_path(matches[0][0])
-                sound_name = matches[0][0]
-            elif len(matches) > 1:
+            if len(matches) > 1:
                 names = [n for n, _ in matches[:5]]
                 _ = await ctx.send(
                     f"Multiple matches: {', '.join(names)}"
                     + (" ..." if len(matches) > 5 else "")
                 )
-                return
             else:
-                _ = await ctx.send(f"❌ Sound '{sound_name}' not found")
-                return
+                _ = await ctx.send(f"❌ Sound or group '{sound_name}' not found")
+            return
+        sound_name, audio_path = resolved
 
         assert ctx.guild is not None  # Text commands only work in guilds
-        assert audio_path is not None  # Checked above with early returns
         member = ctx.guild.get_member(ctx.author.id)
         duration = sound_service.get_sound_duration(sound_name)
         success, message = await voice_service.queue_sound(
@@ -1373,14 +1459,14 @@ class UserSettingsCog(commands.Cog):
 
     @app_commands.command(name="entrance")
     @app_commands.describe(
-        sound_name="Sound to play when you join voice (leave empty to see current)"
+        sound_name="Sound or group to play when you join voice (leave empty to see current)"
     )
     async def set_entrance(
         self,
         interaction: Interaction,
         sound_name: Optional[str] = None,
     ):
-        """Set or view your entrance sound."""
+        """Set or view your entrance sound. Accepts a group name (picks a random member each time)."""
         user_id = str(interaction.user.id)
 
         if sound_name is None:
@@ -1396,10 +1482,13 @@ class UserSettingsCog(commands.Cog):
                 )
             return
 
-        # Validate sound exists
+        # Validate sound or group exists
         sound_name = sound_name.lower()
-        if not sound_service.get_sound(sound_name):
-            # Try partial match
+        if sound_name in state.groups:
+            pass
+        elif sound_service.get_sound(sound_name):
+            pass
+        else:
             matches = sound_service.search_sounds(sound_name)
             if len(matches) == 1:
                 sound_name = matches[0][0]
@@ -1412,7 +1501,7 @@ class UserSettingsCog(commands.Cog):
                 return
             else:
                 _ = await interaction.response.send_message(
-                    f"❌ Sound '{sound_name}' not found"
+                    f"❌ Sound or group '{sound_name}' not found"
                 )
                 return
 
@@ -1425,14 +1514,14 @@ class UserSettingsCog(commands.Cog):
 
     @app_commands.command(name="exit")
     @app_commands.describe(
-        sound_name="Sound to play when you leave voice (leave empty to see current)"
+        sound_name="Sound or group to play when you leave voice (leave empty to see current)"
     )
     async def set_exit(
         self,
         interaction: Interaction,
         sound_name: Optional[str] = None,
     ):
-        """Set or view your exit sound."""
+        """Set or view your exit sound. Accepts a group name (picks a random member each time)."""
         user_id = str(interaction.user.id)
 
         if sound_name is None:
@@ -1448,10 +1537,13 @@ class UserSettingsCog(commands.Cog):
                 )
             return
 
-        # Validate sound exists
+        # Validate sound or group exists
         sound_name = sound_name.lower()
-        if not sound_service.get_sound(sound_name):
-            # Try partial match
+        if sound_name in state.groups:
+            pass
+        elif sound_service.get_sound(sound_name):
+            pass
+        else:
             matches = sound_service.search_sounds(sound_name)
             if len(matches) == 1:
                 sound_name = matches[0][0]
@@ -1464,7 +1556,7 @@ class UserSettingsCog(commands.Cog):
                 return
             else:
                 _ = await interaction.response.send_message(
-                    f"❌ Sound '{sound_name}' not found"
+                    f"❌ Sound or group '{sound_name}' not found"
                 )
                 return
 
@@ -1571,59 +1663,64 @@ class VoiceEventsCog(commands.Cog):
 
         # Handle join
         if joined_channel:
-            sound_name = state.entrances.get(user_id)
-            if sound_name:
-                audio_path = sound_service.get_audio_path(sound_name)
-                if audio_path and audio_path.exists():
-                    self._mark_played(user_id)
-                    duration = sound_service.get_sound_duration(sound_name)
-                    # Play in the channel they joined
-                    # VocalGuildChannel includes StageChannel, but connect only accepts VoiceChannel
-                    assert isinstance(joined_channel, discord.VoiceChannel)
-                    voice_client = await voice_service.connect(joined_channel)
-                    if voice_client:
-                        _ = await voice_service.queue_sound(
-                            member.guild,
-                            audio_path,
-                            sound_name,
-                            user=member,
-                            duration=duration,
-                        )
-                        # Update play count
-                        sound = sound_service.get_sound(sound_name)
-                        if sound:
-                            sound.discord.plays += 1
-                            sound.discord.last_played = datetime.now()
-                            _ = state.save()
-
-        # Handle leave
-        elif left_channel:
-            sound_name = state.exits.get(user_id)
-            if sound_name:
-                audio_path = sound_service.get_audio_path(sound_name)
-                if audio_path and audio_path.exists():
-                    self._mark_played(user_id)
-                    duration = sound_service.get_sound_duration(sound_name)
-                    # Play in the channel they left (if bot is there or others remain)
-                    remaining_members = [m for m in left_channel.members if not m.bot]
-                    if remaining_members:
+            stored_name = state.entrances.get(user_id)
+            if stored_name:
+                # Resolve through the full lookup chain so groups pick a random member each time
+                resolved = sound_service.resolve_playable(stored_name)
+                if resolved:
+                    resolved_name, audio_path = resolved
+                    if audio_path.exists():
+                        self._mark_played(user_id)
+                        duration = sound_service.get_sound_duration(resolved_name)
+                        # Play in the channel they joined
                         # VocalGuildChannel includes StageChannel, but connect only accepts VoiceChannel
-                        assert isinstance(left_channel, discord.VoiceChannel)
-                        voice_client = await voice_service.connect(left_channel)
+                        assert isinstance(joined_channel, discord.VoiceChannel)
+                        voice_client = await voice_service.connect(joined_channel)
                         if voice_client:
                             _ = await voice_service.queue_sound(
                                 member.guild,
                                 audio_path,
-                                sound_name,
+                                resolved_name,
                                 user=member,
                                 duration=duration,
                             )
                             # Update play count
-                            sound = sound_service.get_sound(sound_name)
+                            sound = sound_service.get_sound(resolved_name)
                             if sound:
                                 sound.discord.plays += 1
                                 sound.discord.last_played = datetime.now()
                                 _ = state.save()
+
+        # Handle leave
+        elif left_channel:
+            stored_name = state.exits.get(user_id)
+            if stored_name:
+                resolved = sound_service.resolve_playable(stored_name)
+                if resolved:
+                    resolved_name, audio_path = resolved
+                    if audio_path.exists():
+                        self._mark_played(user_id)
+                        duration = sound_service.get_sound_duration(resolved_name)
+                        # Play in the channel they left (if bot is there or others remain)
+                        remaining_members = [m for m in left_channel.members if not m.bot]
+                        if remaining_members:
+                            # VocalGuildChannel includes StageChannel, but connect only accepts VoiceChannel
+                            assert isinstance(left_channel, discord.VoiceChannel)
+                            voice_client = await voice_service.connect(left_channel)
+                            if voice_client:
+                                _ = await voice_service.queue_sound(
+                                    member.guild,
+                                    audio_path,
+                                    resolved_name,
+                                    user=member,
+                                    duration=duration,
+                                )
+                                # Update play count
+                                sound = sound_service.get_sound(resolved_name)
+                                if sound:
+                                    sound.discord.plays += 1
+                                    sound.discord.last_played = datetime.now()
+                                    _ = state.save()
 
 
 # Create the bot instance

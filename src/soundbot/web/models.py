@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -36,6 +36,7 @@ class GroupResponse(BaseModel):
     name: str
     members: List[str]
     created: Optional[datetime] = None
+    random_mode: Literal["together", "separate"] = "together"
     discord_plays: int = 0
     twitch_plays: int = 0
     web_plays: int = 0

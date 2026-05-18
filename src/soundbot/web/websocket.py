@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime
-from typing import Optional, Set
+from typing import Literal, Optional, Set
 
 from fastapi import WebSocket
 from pydantic import BaseModel
@@ -30,6 +30,7 @@ class GroupUpdateEvent(BaseModel):
     # Action: "add", "edit", "delete"
     action: str
     created: Optional[datetime] = None
+    random_mode: Literal["together", "separate"] = "together"
     discord_plays: int = 0
     twitch_plays: int = 0
     web_plays: int = 0
@@ -94,6 +95,7 @@ class WebSocketManager:
         members: list[str],
         action: str = "edit",
         created: Optional[datetime] = None,
+        random_mode: Literal["together", "separate"] = "together",
         discord_plays: int = 0,
         twitch_plays: int = 0,
         web_plays: int = 0,
@@ -104,6 +106,7 @@ class WebSocketManager:
             members=members,
             action=action,
             created=created,
+            random_mode=random_mode,
             discord_plays=discord_plays,
             twitch_plays=twitch_plays,
             web_plays=web_plays,
