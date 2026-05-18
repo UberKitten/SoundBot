@@ -3,40 +3,79 @@ import {
   getButtonElement,
   getElement,
   getInputElement,
-  getInputElements,
   getSelectElement,
 } from "utils";
+
+const SORT_ORDER_TITLES = {
+  desc: "Sort direction (descending)",
+  asc: "Sort direction (ascending)",
+} as const;
+
+const MEMBERS_TOGGLE_TITLES = {
+  hidden: "Show group members",
+  shown: "Hide group members",
+} as const;
 
 export function init() {
   const app = getElement("soundboard-app");
   const searchInput = getInputElement("input[type=search]");
   const sortSelect = getSelectElement("#sort");
-  const singlePlayCheckbox = getInputElement("input#single-sound");
+  const sortOrderButton = getButtonElement("button#sort-order");
   const volumeSlider = getInputElement("input#volume");
   const stopButton = getButtonElement("button#stop");
   const clearFilterButton = getButtonElement("button#clear-filter");
-  const sortOrderRadios = getInputElements("input[name=sortorder]");
-
-  function getSelectedSortOrderRadio() {
-    return Array.from(sortOrderRadios).find((radio) =>
-      radio.matches(":checked")
-    );
-  }
+  const playModeSingleButton = getButtonElement("button#play-mode-single");
+  const playModeChaosButton = getButtonElement("button#play-mode-chaos");
+  const membersToggleButton = getButtonElement("button#group-members-toggle");
 
   function setFilter(search: string) {
     app.setAttribute("filter", search);
+    const filterActive = search.length > 0;
+    membersToggleButton.dataset.filterActive = filterActive ? "true" : "false";
+    if (filterActive) {
+      membersToggleButton.title = "Filter is active — showing all matches";
+    } else {
+      const state = membersToggleButton.dataset.state === "shown"
+        ? "shown"
+        : "hidden";
+      membersToggleButton.title = MEMBERS_TOGGLE_TITLES[state];
+    }
   }
 
   function setSort(sortBy: string) {
     app.setAttribute("sort", sortBy);
   }
 
-  function setSortOrder(order: string) {
+  function setSortOrder(order: "asc" | "desc") {
     app.setAttribute("sortorder", order);
+    sortOrderButton.dataset.order = order;
+    sortOrderButton.title = SORT_ORDER_TITLES[order];
   }
 
   function setSinglePlay(singlePlay: boolean) {
     app.setAttribute("singleplay", singlePlay ? "yes" : "no");
+    playModeSingleButton.setAttribute(
+      "aria-pressed",
+      singlePlay ? "true" : "false"
+    );
+    playModeChaosButton.setAttribute(
+      "aria-pressed",
+      singlePlay ? "false" : "true"
+    );
+  }
+
+  function setShowMembers(showMembers: boolean) {
+    const state = showMembers ? "shown" : "hidden";
+    app.setAttribute("showmembers", showMembers ? "yes" : "no");
+    membersToggleButton.dataset.state = state;
+    membersToggleButton.setAttribute("aria-label", MEMBERS_TOGGLE_TITLES[state]);
+    membersToggleButton.setAttribute(
+      "aria-pressed",
+      showMembers ? "true" : "false"
+    );
+    if (membersToggleButton.dataset.filterActive !== "true") {
+      membersToggleButton.title = MEMBERS_TOGGLE_TITLES[state];
+    }
   }
 
   searchInput.addEventListener("input", () => {
@@ -72,29 +111,35 @@ export function init() {
     stopAllButtonAudio();
   });
 
-  singlePlayCheckbox.addEventListener("input", () => {
-    if (singlePlayCheckbox.matches(":checked")) {
-      stopAllButtonAudio();
-      if (stopButton) stopButton.innerText = "Stop";
-      setSinglePlay(true);
-    } else {
-      if (stopButton) stopButton.innerText = "Stop All";
-      setSinglePlay(false);
-    }
+  playModeSingleButton.addEventListener("click", () => {
+    stopAllButtonAudio();
+    setSinglePlay(true);
+  });
+
+  playModeChaosButton.addEventListener("click", () => {
+    setSinglePlay(false);
   });
 
   sortSelect.addEventListener("input", () => {
     setSort(sortSelect.value);
   });
 
-  document.querySelectorAll("input[name=sortorder]").forEach((radiobox) => {
-    radiobox.addEventListener("input", (e) => {
-      setSortOrder((e.currentTarget as HTMLInputElement).value);
-    });
+  sortOrderButton.addEventListener("click", () => {
+    const next = sortOrderButton.dataset.order === "asc" ? "desc" : "asc";
+    setSortOrder(next);
   });
+
+  membersToggleButton.addEventListener("click", () => {
+    const showing = membersToggleButton.dataset.state === "shown";
+    setShowMembers(!showing);
+  });
+
+  const initialOrder =
+    sortOrderButton.dataset.order === "asc" ? "asc" : "desc";
 
   setFilter(searchInput.value ?? "");
   setSort(sortSelect.value ?? "");
-  setSortOrder(getSelectedSortOrderRadio()?.value ?? "");
-  setSinglePlay(!!singlePlayCheckbox.matches(":checked"));
+  setSortOrder(initialOrder);
+  setSinglePlay(true);
+  setShowMembers(false);
 }

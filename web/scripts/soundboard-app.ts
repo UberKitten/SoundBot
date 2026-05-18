@@ -70,6 +70,8 @@ export class SoundboardApp extends HTMLElement {
   unsubscribeWebSocket: (() => void) | null = null;
   unsubscribeGroupWebSocket: (() => void) | null = null;
   groupShuffleBags: Map<string, string[]> = new Map();
+  /** Set of canonical sound names that are members of any group. */
+  groupMembers: Set<string> = new Set();
 
   constructor() {
     super();
@@ -99,6 +101,7 @@ export class SoundboardApp extends HTMLElement {
         const { sounds, groups } = result as { sounds: Array<Sound>; groups: Array<SoundGroup> };
         this.sounds = sounds;
         this.groups = groups;
+        this.rebuildGroupMembers();
         this.updateSoundButtons();
         this.handleDeepLink();
       })
@@ -188,6 +191,8 @@ export class SoundboardApp extends HTMLElement {
       this.groups = this.groups.filter((g) => g.name !== group_name);
       const button = this.grid.querySelector(`.group-button[data-group-name="${group_name}"]`);
       if (button) button.remove();
+      this.rebuildGroupMembers();
+      this.refreshAllSoundButtonMembership();
       return;
     }
 
@@ -208,6 +213,41 @@ export class SoundboardApp extends HTMLElement {
         this.updateGroupButtonLabel(button as HTMLButtonElement, groupData);
       }
     }
+    this.rebuildGroupMembers();
+    this.refreshAllSoundButtonMembership();
+  }
+
+  rebuildGroupMembers() {
+    this.groupMembers = new Set();
+    for (const group of this.groups) {
+      for (const member of group.members) {
+        this.groupMembers.add(member);
+      }
+    }
+  }
+
+  applyMembershipToButton(button: HTMLElement, soundName: string) {
+    if (this.groupMembers.has(soundName)) {
+      button.dataset.groupMember = "true";
+    } else {
+      delete button.dataset.groupMember;
+    }
+  }
+
+  refreshAllSoundButtonMembership() {
+    const buttons = this.grid.querySelectorAll(
+      "soundboard-button[sound]"
+    ) as NodeListOf<HTMLElement>;
+    buttons.forEach((button) => {
+      const soundAttr = button.getAttribute("sound");
+      if (!soundAttr) return;
+      try {
+        const sound = JSON.parse(soundAttr) as Sound;
+        this.applyMembershipToButton(button, sound.name);
+      } catch {
+        // ignore parse errors
+      }
+    });
   }
 
   /**
@@ -240,6 +280,7 @@ export class SoundboardApp extends HTMLElement {
     if (this.singlePlay) button.setAttribute("singleplay", "true");
     button.classList.add("fade-in");
     button.dataset.copyText = `${getRandomPrefix()}${sound.name}`;
+    this.applyMembershipToButton(button, sound.name);
 
     // Hide if it doesn't match the current filter
     if (this.filter && !getCanonicalString(sound.name)?.includes(this.filter) &&
@@ -462,6 +503,7 @@ export class SoundboardApp extends HTMLElement {
             )
               button.classList.add("no-display");
             button.dataset.copyText = `${getRandomPrefix()}${item.sound.name}`;
+            this.applyMembershipToButton(button, item.sound.name);
           } else if (item.type === "group" && item.group) {
             button = this.createGroupButton(item.group);
             if (this.filter && !getCanonicalString(item.group.name)?.includes(this.filter)) {

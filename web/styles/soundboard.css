@@ -30,6 +30,7 @@
   --border-color: rgba(255, 255, 255, 0.1);
 
   --standard-padding: 12px;
+  --control-height: 2rem;
 }
 
 body {
@@ -40,7 +41,8 @@ body {
   min-width: 320px;
   /* minimum of 16px required to prevent auto zoom in safari */
   font-size: max(16px, 1rem);
-  font-family: system-ui, sans-serif;
+  font-family: "Inter", system-ui, sans-serif;
+  font-feature-settings: "cv11", "ss01", "ss03";
   -webkit-text-size-adjust: none;
   text-size-adjust: none;
 }
@@ -50,7 +52,8 @@ header {
   padding: var(--standard-padding);
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
+  gap: var(--standard-padding);
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -58,8 +61,9 @@ header {
   visibility: hidden;
 }
 
-.no-display {
-  display: none;
+.no-display,
+[hidden] {
+  display: none !important;
 }
 
 @keyframes fadeIn {
@@ -176,15 +180,15 @@ soundboard-app footer a {
 
 header input,
 select {
-  padding: calc(var(--standard-padding) * 0.5);
+  height: var(--control-height);
+  padding: 0 calc(var(--standard-padding) * 0.5);
   color: white;
   font-size: inherit;
 }
 
 header input[type="range"] {
+  height: auto;
   padding: 0;
-  top: calc(var(--standard-padding) * 0.25);
-  position: relative;
 }
 
 header label {
@@ -192,8 +196,111 @@ header label {
   padding-bottom: var(--standard-padding);
 }
 
+.icon {
+  width: 1.1em;
+  height: 1.1em;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
 .filter-wrapper {
   position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.filter-wrapper .filter-icon {
+  position: absolute;
+  left: calc(var(--standard-padding) * 0.55);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.filter-wrapper input[type="search"] {
+  padding-left: calc(var(--standard-padding) * 0.5 + 1.1em + 0.4em);
+}
+
+.sort-wrapper {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.sort-wrapper select {
+  flex: 1;
+  min-width: 0;
+}
+
+.sort-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--control-height);
+  border: 0;
+  background-color: var(--primary-color);
+  color: white;
+  cursor: pointer;
+  padding: 0 calc(var(--standard-padding) * 0.75);
+  line-height: 1;
+  border-radius: var(--corner-rounding);
+  min-width: 2.5rem;
+}
+
+.sort-order .icon {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+.sort-order[data-order="desc"] .sort-order-asc,
+.sort-order[data-order="asc"] .sort-order-desc {
+  display: none;
+}
+
+.sort-order:hover {
+  filter: brightness(1.15);
+}
+
+.icon-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--control-height);
+  width: var(--control-height);
+  border: 0;
+  background-color: var(--alt-color);
+  color: white;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  border-radius: var(--corner-rounding);
+}
+
+.icon-toggle:hover {
+  filter: brightness(1.15);
+}
+
+.icon-toggle .icon {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+#group-members-toggle[data-state="hidden"] .members-icon-shown,
+#group-members-toggle[data-state="shown"] .members-icon-hidden {
+  display: none;
+}
+
+#group-members-toggle[data-state="shown"] {
+  background-color: var(--primary-color);
+}
+
+/* When toggle is hidden AND no filter is active, hide sound buttons that are members of a group */
+soundboard-app[showmembers="no"][filter=""] soundboard-button[data-group-member="true"] {
+  display: none;
+}
+
+/* Dim the members toggle when a filter is active — its setting is overridden */
+#group-members-toggle[data-filter-active="true"] {
+  opacity: 0.5;
 }
 
 header input[type="search"],
@@ -204,18 +311,70 @@ header select {
   width: 100%;
 }
 
+.play-mode {
+  display: inline-flex;
+  height: var(--control-height);
+  border-radius: var(--corner-rounding);
+  overflow: hidden;
+}
+
+.play-mode-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  border: 0;
+  background-color: var(--alt-color);
+  color: white;
+  cursor: pointer;
+  padding: 0 calc(var(--standard-padding) * 0.75);
+  font-size: inherit;
+  font-family: inherit;
+  line-height: 1;
+}
+
+.play-mode-option + .play-mode-option {
+  box-shadow: inset 1px 0 0 var(--border-color);
+}
+
+.play-mode-option[aria-pressed="true"] {
+  background-color: var(--primary-color);
+}
+
+.play-mode-option:hover {
+  filter: brightness(1.15);
+}
+
+.volume-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--standard-padding) * 0.5);
+}
+
+.volume-wrapper .volume-icon {
+  width: 1.3em;
+  height: 1.3em;
+  opacity: 0.8;
+}
+
+.volume-wrapper input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
 .clear-filter {
   position: absolute;
   right: 0;
   top: 50%;
   transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   color: inherit;
-  font-size: 1.2em;
   cursor: pointer;
-  padding: 0 0.4em;
-  line-height: 1;
+  padding: 0 0.5em;
   opacity: 0.7;
 }
 
@@ -223,11 +382,10 @@ header select {
   opacity: 1;
 }
 
-header input[type="radio"] {
-  cursor: pointer;
-}
-
 button#stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--corner-rounding);
   border: 0;
   background-color: var(--bold-color);
@@ -235,8 +393,16 @@ button#stop {
   cursor: pointer;
   width: 100%;
   padding: var(--standard-padding);
-  font-size: inherit;
-  text-transform: uppercase;
+  line-height: 1;
+}
+
+button#stop .icon {
+  width: 1.6em;
+  height: 1.6em;
+}
+
+button#stop:hover {
+  filter: brightness(1.15);
 }
 
 .sm-fullwidth {
@@ -269,26 +435,26 @@ button#stop {
     top: 0;
     bottom: initial;
 
-    gap: var(--standard-padding) 0;
-
     z-index: 20;
   }
 
   .bottom-controls {
     border-top: 0;
     padding: 0;
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--standard-padding);
     position: static;
     width: initial;
     z-index: inherit;
   }
 
   .lg-mr-half {
-    margin-right: calc(var(--standard-padding) * 0.5);
+    margin-right: 0;
   }
 
   .lg-mr-1 {
-    margin-right: var(--standard-padding);
+    margin-right: 0;
   }
 
   .sm-fullwidth {
@@ -321,8 +487,14 @@ button#stop {
   }
 
   button#stop {
-    width: initial;
-    padding: calc(var(--standard-padding) * 0.5) var(--standard-padding);
+    width: var(--control-height);
+    height: var(--control-height);
+    padding: 0;
+  }
+
+  .volume-wrapper {
+    width: 10rem;
+    height: var(--control-height);
   }
 }
 
