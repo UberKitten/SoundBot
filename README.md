@@ -124,9 +124,34 @@ uv run python -m soundbot
 
 ### CLI tools
 
+The bot ships a small CLI for offline maintenance and ingest. Stop the running
+bot first (the state lock prevents concurrent instances):
+
 ```bash
-uv run python -m soundbot.cli  # Check sounds, regenerate audio
+docker compose stop  # if running in docker
+uv run python -m soundbot.cli <subcommand>
+docker compose up -d
 ```
+
+Subcommands:
+
+```bash
+# Clip a sound from a local video file. Source is NOT copied — the absolute
+# path is stored in state, so future trim/regenerate operations re-read from
+# the original. Timestamps accept HH:MM:SS, MM:SS, or seconds.
+uv run python -m soundbot.cli clip <video> <name> <start> <end> [--volume N] [--overwrite]
+
+# Re-normalize all (or one) sound's audio from its original. Use after
+# changing audio_target_lufs.
+uv run python -m soundbot.cli regenerate-audio [--sound NAME] [--dry-run]
+
+# Find sounds whose audio file is missing on disk.
+uv run python -m soundbot.cli check-sounds [--remove]
+```
+
+`clip` requires the source to be reachable from wherever the bot runs. For
+the Docker container, that means bind-mounting media shares (e.g.
+`/mnt/tv:/mnt/tv:ro`) into the service.
 
 ### Watch mode for frontend development
 

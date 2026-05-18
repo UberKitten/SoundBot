@@ -19,8 +19,11 @@ npm ci && npm run build        # Frontend (TypeScript/CSS via Gulp)
 uv run python -m soundbot      # Start bot + web server
 npm run dev                     # Frontend watch mode (separate terminal)
 
-# CLI tools
-uv run python -m soundbot.cli  # CLI utilities (check sounds, regenerate audio)
+# CLI tools (subcommands: clip, regenerate-audio, check-sounds)
+uv run python -m soundbot.cli                            # show help
+uv run python -m soundbot.cli clip VIDEO NAME START END  # clip from a local video
+uv run python -m soundbot.cli regenerate-audio           # re-normalize after LUFS change
+uv run python -m soundbot.cli check-sounds               # find sounds with missing files
 
 # Docker
 docker-compose up --build
