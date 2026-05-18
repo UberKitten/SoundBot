@@ -4,6 +4,7 @@ import re
 from typing import Any, Dict
 
 from fastapi import APIRouter, Request
+from fastapi.responses import ORJSONResponse
 from starlette.templating import Jinja2Templates
 
 from soundbot.core.settings import settings
@@ -53,5 +54,38 @@ async def index(request: Request):
     return templates.TemplateResponse(
         request,
         "index.html",
-        {"css_file": css_file, "js_importmap": js_importmap},
+        {
+            "css_file": css_file,
+            "js_importmap": js_importmap,
+            "app_title": settings.app_title,
+        },
+    )
+
+
+@router.get("/site.webmanifest")
+async def webmanifest():
+    """Dynamic PWA manifest that reflects the configured app title."""
+    short_name = settings.app_short_title or settings.app_title
+    return ORJSONResponse(
+        {
+            "name": settings.app_title,
+            "short_name": short_name,
+            "start_url": "./",
+            "icons": [
+                {
+                    "src": "/android-chrome-192x192.png",
+                    "sizes": "192x192",
+                    "type": "image/png",
+                },
+                {
+                    "src": "/android-chrome-512x512.png",
+                    "sizes": "512x512",
+                    "type": "image/png",
+                },
+            ],
+            "theme_color": "#ffffff",
+            "background_color": "#ffffff",
+            "display": "fullscreen",
+        },
+        media_type="application/manifest+json",
     )

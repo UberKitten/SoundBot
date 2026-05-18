@@ -72,7 +72,7 @@ def get_web():
 
     if not web:
         web = FastAPI(
-            title="SoundBot",
+            title=settings.app_title,
             docs_url="/api/docs",
             default_response_class=ORJSONResponse,
         )

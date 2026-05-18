@@ -20,6 +20,11 @@ class Settings(BaseSettings):
 
     web_ui_url: str = "sounds.uberkitten.com"
 
+    # Title shown in the browser tab, PWA app name, and OpenAPI docs.
+    app_title: str = "Soundboard"
+    # Short name for PWA installs (recommended max 12 chars). Falls back to app_title.
+    app_short_title: Optional[str] = None
+
     twitch_command_prefixes: list[str] = ["!", "¡", "?", "‽", "$", "~", "ඞ", "ꙮ"]
 
     # API key for authenticated endpoints (stream play recording)
