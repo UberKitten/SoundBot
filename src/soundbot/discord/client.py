@@ -788,8 +788,17 @@ class SoundCommands(commands.Cog):
         )
         title = download_result.title or "Quick play"
 
-        # Get duration from audio result
-        duration = audio_result.duration_seconds
+        # Compute playback duration from the source duration and trim window,
+        # falling back to probing the output if metadata is missing.
+        duration: Optional[float] = None
+        if download_result.duration is not None:
+            trim_start = start or 0.0
+            trim_end = end if end is not None else download_result.duration
+            duration = max(0.0, trim_end - trim_start)
+        if duration is None:
+            probe = await ffmpeg_service.probe(temp_audio)
+            if probe is not None:
+                duration = probe.duration
 
         success, message = await voice_service.play_sound(
             interaction.guild,
@@ -815,7 +824,7 @@ class SoundCommands(commands.Cog):
             # Schedule cleanup after playback (give it time to start playing)
             async def cleanup_temp_dir():
                 # Wait for sound to finish playing (approximate based on duration)
-                wait_time = audio_result.duration_seconds or 60
+                wait_time = duration if duration else 60
                 await asyncio.sleep(wait_time + 5)  # Add 5 second buffer
                 try:
                     shutil.rmtree(temp_dir)
