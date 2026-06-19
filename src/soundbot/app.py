@@ -14,7 +14,7 @@ from soundbot.web.web import get_web
 logger = logging.getLogger(__name__)
 
 # How often to check for yt-dlp updates (in hours)
-YTDLP_UPDATE_INTERVAL_HOURS = 6
+YTDLP_UPDATE_INTERVAL_HOURS = 24
 
 
 async def init():
