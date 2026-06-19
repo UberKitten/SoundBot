@@ -52,8 +52,10 @@ COPY --from=python-builder /app/dist ./dist
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 RUN uv pip install --python .venv/bin/python ./dist/*.whl
 
-# Update yt-dlp to latest version at build time
-RUN ./.venv/bin/yt-dlp --update || true
+# Upgrade yt-dlp to the latest release at build time. `yt-dlp --update` is a
+# no-op for wheel installs, so use uv to actually bump the package. No `|| true`:
+# if the latest yt-dlp can't be fetched, fail the build loudly.
+RUN uv pip install --python .venv/bin/python --upgrade yt-dlp
 
 # Run as non-root so bind-mounted host dirs (sounds/, config/) get the
 # expected ownership (uid 1000) instead of root.

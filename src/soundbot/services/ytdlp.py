@@ -165,7 +165,19 @@ class YtdlpService:
         async with self._update_lock:
             try:
                 logger.info("Updating yt-dlp...")
-                cmd = _get_ytdlp_command() + ["--update"]
+                # yt-dlp is installed as a PyPI wheel via uv, so `yt-dlp --update`
+                # is a no-op (it only self-updates the standalone binary). Use uv
+                # to actually upgrade the installed package instead.
+                venv_python = _get_ytdlp_command()[0]
+                cmd = [
+                    "uv",
+                    "pip",
+                    "install",
+                    "--python",
+                    venv_python,
+                    "--upgrade",
+                    "yt-dlp",
+                ]
                 logger.debug(f"Running: {' '.join(cmd)}")
                 with _skip_debugger_subprocess_patch():
                     proc = await asyncio.create_subprocess_exec(
@@ -401,26 +413,33 @@ class YtdlpService:
         """
         Download media from URL using yt-dlp.
 
-        Updates yt-dlp before downloading to ensure we have the latest
-        extractors (this often fixes issues with changed site APIs).
+        yt-dlp is refreshed on a daily schedule (see app.update_ytdlp_periodically),
+        so the common path does no update. If a download fails (e.g. a site changed
+        its API and we get an HTTP 403), update yt-dlp once and retry — newer
+        extractors often fix exactly this.
         """
-        # Update yt-dlp before downloading
+        result = await self._do_download(url, output_dir, sound_name)
+
+        if result.success:
+            return result
+
+        # Download failed — try a fresh yt-dlp once, then retry.
+        logger.warning(
+            f"Download failed ({result.error}); updating yt-dlp and retrying once."
+        )
         start_time = time.monotonic()
         update_success, update_msg = await self.update_ytdlp()
         update_time = time.monotonic() - start_time
 
         if not update_success:
             logger.warning(f"yt-dlp update failed: {update_msg}")
+            return result
 
-        result = await self._do_download(url, output_dir, sound_name)
-
-        # Add update timing to the beginning if we attempted update
-        if update_time > 0:
-            result.timings.insert(
-                0, StepTiming(step="yt-dlp update", duration_seconds=update_time)
-            )
-
-        return result
+        retry = await self._do_download(url, output_dir, sound_name)
+        retry.timings.insert(
+            0, StepTiming(step="yt-dlp update (retry)", duration_seconds=update_time)
+        )
+        return retry
 
     async def download_temp(self, url: str) -> DownloadResult:
         """
