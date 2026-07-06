@@ -255,6 +255,62 @@ class FFmpegService:
         result = await self.probe(input_file)
         return result.duration if result else None
 
+    async def extract_preview_audio(
+        self,
+        input_file: Path,
+        output_file: Path,
+    ) -> ProcessResult:
+        """
+        Extract a full-length, browser-decodable audio preview from the source.
+
+        Unlike extract_and_normalize_audio, this does NO trimming and NO
+        loudness normalization — it just transcodes the whole original to a
+        lightweight mono MP3 so the admin UI can render/scrub a waveform of the
+        untrimmed source. Kept fast on purpose.
+        """
+        args = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(input_file),
+            "-vn",  # No video
+            "-ac",
+            "1",  # Mono is fine for a waveform preview
+            "-c:a",
+            "libmp3lame",
+            "-q:a",
+            "5",
+            str(output_file),
+        ]
+
+        try:
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+
+            start_time = time.monotonic()
+            logger.info(f"Extracting preview audio: {input_file} -> {output_file}")
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            elapsed = time.monotonic() - start_time
+
+            if proc.returncode != 0:
+                error = stderr.decode() if stderr else "Unknown error"
+                logger.error(f"FFmpeg failed: {error}")
+                return ProcessResult(
+                    success=False, error=error, duration_seconds=elapsed
+                )
+
+            return ProcessResult(
+                success=True, output_file=output_file, duration_seconds=elapsed
+            )
+
+        except Exception as e:
+            logger.error(f"Error extracting preview audio: {e}")
+            return ProcessResult(success=False, error=str(e))
+
 
 # Singleton instance
 ffmpeg_service = FFmpegService()

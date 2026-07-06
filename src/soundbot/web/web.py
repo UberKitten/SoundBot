@@ -80,7 +80,9 @@ def get_web():
         web.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
-            allow_credentials=True,
+            # credentials + wildcard origin is spec-invalid; the frontend is
+            # same-origin so cookies are unaffected by CORS regardless.
+            allow_credentials=False,
             allow_methods=["*"],
             allow_headers=["*"],
         )
