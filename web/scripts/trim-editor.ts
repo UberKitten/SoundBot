@@ -247,8 +247,9 @@ export function openTrimEditor(name: string, onSaved?: () => void): void {
 
   function playEdge(edge: "start" | "end"): void {
     if (edge === "start") {
-      const to = Math.min(state.start + EDGE_PREVIEW_SECONDS, state.end);
-      playRange(state.start, to);
+      // Play from the region start through to the region end — auditioning the
+      // start shouldn't cut off mid-sound. Stop manually (Space) when satisfied.
+      playRange(state.start, state.end);
     } else {
       const from = Math.max(state.end - EDGE_PREVIEW_SECONDS, state.start);
       playRange(from, state.end);
@@ -329,7 +330,7 @@ export function openTrimEditor(name: string, onSaved?: () => void): void {
     const startEdgeBtn = document.createElement("button");
     startEdgeBtn.type = "button";
     startEdgeBtn.className = "trim-btn";
-    startEdgeBtn.title = "Play first 1.5s of region (s)";
+    startEdgeBtn.title = "Play from region start (s)";
     startEdgeBtn.innerHTML = `${ICON_PLAY}<span>Start</span>`;
     startEdgeBtn.addEventListener("click", () => playEdge("start"));
 
