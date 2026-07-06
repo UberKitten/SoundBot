@@ -63,10 +63,11 @@ Each sound gets a directory under `sounds/<name>/` containing: original download
 
 ## Security
 
-The web API is **public and unauthenticated**:
-- API endpoints must be **read-only** (GET only)
-- All mutations go through Discord commands, never the web API
-- Never expose tokens, internal state, or user data via API
+The web API has two tiers:
+- **Public (unauthenticated)**: read-only browsing/playback. Public endpoints must stay **read-only** (GET only, plus the play-count POSTs).
+- **Admin (`/api/admin/*`)**: mutations (add/trim/rename/delete/redownload) behind Discord OAuth. `require_admin` (`web/dependencies.py`) verifies a signed session cookie + membership in any guild the bot is in (10-min TTL cache). Auth routes live in `web/routes/auth.py`; configured via `DISCORD_CLIENT_ID`/`DISCORD_CLIENT_SECRET`/`SESSION_SECRET` (unset → auth endpoints 503, app otherwise works).
+- All mutations (Discord commands AND admin API) go through `sound_service` methods so WebSocket events + webhooks fire.
+- Never expose tokens, internal state, or user data via API. Discord OAuth access tokens are used once (identify) and discarded; sessions are itsdangerous-signed cookies, no server-side session store.
 
 ## Key Patterns
 
