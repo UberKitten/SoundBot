@@ -1,5 +1,7 @@
 from fastapi import APIRouter
 
+from .admin import router as admin
+from .auth import router as auth
 from .index import router as index
 from .settings import router as settings
 from .sounds import router as sounds
@@ -11,3 +13,5 @@ router.include_router(index)
 router.include_router(settings)
 router.include_router(sounds)
 router.include_router(ws)
+router.include_router(auth)
+router.include_router(admin)

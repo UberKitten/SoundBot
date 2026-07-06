@@ -35,6 +35,21 @@ class Settings(BaseSettings):
     # When changing, run: uv run python -m soundbot.cli regenerate-audio
     audio_target_lufs: float = -20.0
 
+    # --- Discord OAuth admin auth (all optional) ---
+    # When these are unset, auth endpoints return 503 and the site stays
+    # anonymous/read-only. Set client id/secret + session secret to enable
+    # admin login via Discord OAuth.
+    discord_client_id: Optional[str] = None
+    discord_client_secret: Optional[str] = None
+    # Long random string used to sign session cookies (e.g. `openssl rand -hex 32`)
+    session_secret: Optional[str] = None
+    # Base URL for OAuth redirects. If None, derived as https://{web_ui_url}.
+    # The OAuth2 redirect URI registered in the Discord portal must be
+    # "{oauth_redirect_base}/api/auth/callback".
+    oauth_redirect_base: Optional[str] = None
+    # How long an admin session cookie stays valid.
+    admin_session_days: int = 30
+
 
 # Type checker doesn't understand that pydantic_settings loads from env
 settings = Settings()  # type: ignore[call-arg]

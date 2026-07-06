@@ -1,7 +1,7 @@
 import logging
 import pathlib
 import re
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Request
 from fastapi.responses import ORJSONResponse
@@ -14,6 +14,17 @@ router = APIRouter()
 
 templates = Jinja2Templates(directory=settings.templates_folder)
 asset_re = re.compile(r".*[/\\](scripts|styles)[/\\](.+[/\\])?(.+)-.+(\..+)$")
+
+# Checked-in, un-hashed third-party ESM bundles served from /vendor/
+# (gulp copyStatic copies web/static/vendor/** -> web/dist/vendor/**).
+# Each is a fully self-contained bundle with no import statements, so the two
+# entries resolve independently (the regions plugin bundles its own copy of the
+# core base classes and does not import "wavesurfer"). See
+# web/static/vendor/README.md for provenance.
+VENDOR_IMPORTS: Dict[str, str] = {
+    "wavesurfer": "/vendor/wavesurfer.esm.js",
+    "wavesurfer-regions": "/vendor/regions.esm.js",
+}
 
 
 @router.get("/")
@@ -39,23 +50,36 @@ async def index(request: Request):
         else:
             logger.warning(f"JS file didn't match pattern: {js_file}")
 
+    # Merge in the vendored bare-specifier -> URL mappings. Warn (don't fail) if
+    # a vendored file is missing from the build so the page still loads.
+    for specifier, url in VENDOR_IMPORTS.items():
+        vendor_file = static_path.joinpath(url.lstrip("/"))
+        if not vendor_file.exists():
+            logger.warning(f"Vendored asset missing for '{specifier}': {vendor_file}")
+        js_importmap["imports"][specifier] = url
+
     logger.debug(f"Generated import map: {js_importmap}")
 
-    if len(css_files) >= 1:
-        css_matches = asset_re.match(str(css_files[0].absolute()))
-    else:
-        css_matches = None
+    # Collect every hashed stylesheet (base soundboard.css + admin.css, etc.).
+    # Sorted for deterministic ordering; the stylesheets are additive and do not
+    # override one another, so cascade order among them is not significant.
+    css_file_names: List[str] = []
+    for css_file in sorted(css_files, key=lambda p: p.name):
+        css_matches = asset_re.match(str(css_file.absolute()))
+        if css_matches:
+            css_file_names.append(css_file.name)
+        else:
+            logger.warning(f"CSS file didn't match pattern: {css_file}")
 
-    if css_matches:
-        css_file = css_files[0].name
-    else:
-        css_file = None
+    # Back-compat single value: first stylesheet (or None) for older templates.
+    css_file = css_file_names[0] if css_file_names else None
 
     return templates.TemplateResponse(
         request,
         "index.html",
         {
             "css_file": css_file,
+            "css_files": css_file_names,
             "js_importmap": js_importmap,
             "app_title": settings.app_title,
         },
