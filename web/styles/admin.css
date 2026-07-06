@@ -1,0 +1,525 @@
+/* Admin + auth UI. Additive to soundboard.css — reuses its custom properties
+   (--bg-color, --primary-color, --alt-color, --bold-color, --border-color,
+   --corner-rounding, --standard-padding) and does not override base rules. */
+
+/* ---- header: auth chip + add button ---- */
+
+.auth-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--standard-padding) * 0.5);
+}
+
+.auth-login-btn,
+.admin-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  height: var(--control-height);
+  padding: 0 calc(var(--standard-padding) * 0.75);
+  border: 0;
+  border-radius: var(--corner-rounding);
+  background-color: var(--alt-color);
+  color: white;
+  font-size: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.admin-add-btn {
+  background-color: var(--primary-color);
+}
+
+.auth-login-btn:hover,
+.admin-add-btn:hover {
+  filter: brightness(1.15);
+}
+
+.auth-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  height: var(--control-height);
+  padding: 0 calc(var(--standard-padding) * 0.5);
+  border-radius: var(--corner-rounding);
+  background-color: var(--alt-color);
+  cursor: pointer;
+  user-select: none;
+  max-width: 12rem;
+}
+
+.auth-chip:hover {
+  filter: brightness(1.15);
+}
+
+.auth-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  overflow: hidden;
+  background-color: var(--primary-color);
+  flex-shrink: 0;
+  font-size: 0.8rem;
+}
+
+.auth-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.auth-username {
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.auth-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 120;
+  min-width: 140px;
+  background-color: var(--alt-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--corner-rounding);
+  padding: 4px 0;
+}
+
+.auth-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.auth-menu-item:hover {
+  background-color: var(--primary-color);
+}
+
+/* ---- context menu extras ---- */
+
+.context-menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background-color: var(--border-color);
+}
+
+.context-menu-item-danger {
+  color: #ff6b6b;
+}
+
+.context-menu-item-danger:hover {
+  background-color: var(--bold-color);
+  color: white;
+}
+
+/* ---- admin modals (share .modal / .modal-overlay from soundboard.css) ---- */
+
+.admin-modal-overlay {
+  z-index: 300;
+  padding: var(--standard-padding);
+}
+
+.admin-modal {
+  background-color: var(--bg-color);
+}
+
+.admin-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--standard-padding);
+}
+
+.admin-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-label {
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.admin-input {
+  height: var(--control-height);
+  padding: 0 calc(var(--standard-padding) * 0.5);
+  border: 1px solid var(--border-color);
+  border-radius: var(--corner-rounding);
+  background-color: var(--alt-color);
+  color: white;
+  font-size: inherit;
+  font-family: inherit;
+  width: 100%;
+}
+
+.admin-input:focus {
+  outline: 2px solid var(--primary-color);
+  outline-offset: -1px;
+}
+
+.admin-input:disabled {
+  opacity: 0.6;
+}
+
+.admin-hint {
+  font-size: 0.75rem;
+  opacity: 0.6;
+}
+
+.admin-error {
+  color: #ff8080;
+  font-size: 0.85rem;
+  word-break: break-word;
+}
+
+.admin-warning {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.admin-actions {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--standard-padding) * 0.5);
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.admin-status {
+  margin-right: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+.admin-spinner,
+.trim-spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: admin-spin 0.7s linear infinite;
+}
+
+@keyframes admin-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- shared admin buttons ---- */
+
+.trim-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  min-height: var(--control-height);
+  padding: 0 calc(var(--standard-padding) * 0.75);
+  border: 1px solid var(--border-color);
+  border-radius: var(--corner-rounding);
+  background-color: var(--alt-color);
+  color: white;
+  font-size: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.trim-btn:hover {
+  filter: brightness(1.15);
+}
+
+.trim-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  filter: none;
+}
+
+.trim-btn-primary {
+  background-color: var(--primary-color);
+  border-color: transparent;
+}
+
+.trim-btn-danger {
+  background-color: var(--bold-color);
+  border-color: transparent;
+}
+
+.trim-btn-subtle {
+  background: none;
+  border-color: var(--border-color);
+  opacity: 0.85;
+}
+
+.trim-btn-toggle.active {
+  background-color: var(--primary-color);
+}
+
+/* ---- trim editor ---- */
+
+.trim-editor.admin-modal {
+  max-width: 760px;
+  width: 100%;
+}
+
+.trim-source {
+  margin-bottom: var(--standard-padding);
+  font-size: 0.8rem;
+  opacity: 0.75;
+  word-break: break-word;
+}
+
+.trim-source a {
+  color: inherit;
+}
+
+.trim-loading,
+.trim-error {
+  padding: calc(var(--standard-padding) * 2);
+  text-align: center;
+  opacity: 0.8;
+}
+
+.trim-error {
+  color: #ff8080;
+}
+
+.trim-waveform {
+  width: 100%;
+  min-height: 160px;
+  background-color: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-color);
+  border-radius: var(--corner-rounding);
+  overflow: hidden;
+  margin-bottom: var(--standard-padding);
+}
+
+.trim-transport {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--standard-padding) * 0.5);
+  margin-bottom: var(--standard-padding);
+}
+
+.trim-edges {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--standard-padding);
+  margin-bottom: var(--standard-padding);
+}
+
+.trim-edge {
+  border: 1px solid var(--border-color);
+  border-radius: var(--corner-rounding);
+  padding: calc(var(--standard-padding) * 0.75);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trim-edge-heading {
+  font-size: 0.8rem;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.trim-edge-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+
+.trim-number {
+  width: 100%;
+  height: var(--control-height);
+  padding: 0 calc(var(--standard-padding) * 0.5);
+  border: 1px solid var(--border-color);
+  border-radius: var(--corner-rounding);
+  background-color: var(--alt-color);
+  color: white;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.trim-unit {
+  opacity: 0.6;
+  font-size: 0.85rem;
+}
+
+.trim-nudges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.trim-nudge {
+  flex: 1 1 auto;
+  min-width: 3rem;
+  min-height: 2.25rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--corner-rounding);
+  background-color: var(--alt-color);
+  color: white;
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.trim-nudge:hover {
+  filter: brightness(1.2);
+}
+
+.trim-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--standard-padding);
+  align-items: center;
+  margin-bottom: var(--standard-padding);
+}
+
+.trim-zoom,
+.trim-volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+.trim-zoom {
+  flex: 1 1 12rem;
+}
+
+.trim-zoom input[type="range"] {
+  flex: 1;
+  min-width: 6rem;
+}
+
+.trim-volume-select {
+  height: var(--control-height);
+  padding: 0 calc(var(--standard-padding) * 0.5);
+  border: 1px solid var(--border-color);
+  border-radius: var(--corner-rounding);
+  background-color: var(--alt-color);
+  color: white;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.trim-footer {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--standard-padding) * 0.5);
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.trim-footer-spacer {
+  flex: 1 1 auto;
+}
+
+.trim-hint {
+  margin-top: var(--standard-padding);
+  font-size: 0.72rem;
+  opacity: 0.55;
+  line-height: 1.5;
+}
+
+.admin-modal.busy {
+  pointer-events: none;
+}
+
+.admin-modal.busy .trim-btn-primary {
+  cursor: progress;
+}
+
+/* ---- toasts ---- */
+
+.toast-container {
+  position: fixed;
+  left: 50%;
+  bottom: calc(6rem + var(--standard-padding));
+  transform: translateX(-50%);
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  pointer-events: none;
+  width: max-content;
+  max-width: 90vw;
+}
+
+.toast {
+  pointer-events: auto;
+  padding: 10px 16px;
+  border-radius: var(--corner-rounding);
+  background-color: var(--alt-color);
+  color: white;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  max-width: 90vw;
+  word-break: break-word;
+  animation: toast-in 0.18s ease-out;
+}
+
+.toast-success {
+  background-color: #1f7a4d;
+  border-color: transparent;
+}
+
+.toast-error {
+  background-color: var(--bold-color);
+  border-color: transparent;
+}
+
+.toast-leaving {
+  animation: toast-out 0.2s ease-in forwards;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media screen and (min-width: 720px) {
+  .toast-container {
+    bottom: calc(var(--standard-padding) * 2);
+  }
+}

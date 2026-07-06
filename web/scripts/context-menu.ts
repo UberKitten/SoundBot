@@ -1,6 +1,14 @@
+import { getAdminMenuItems } from "admin-ui";
 import { Sound, SoundGroup, getSoundPath } from "audio";
 import { copyToClipboard } from "clipboard";
 import { getRandomPrefix } from "config";
+
+interface MenuItem {
+  label: string;
+  action: () => void;
+  danger?: boolean;
+  separator?: boolean;
+}
 
 let activeMenu: HTMLElement | null = null;
 let activeModal: HTMLElement | null = null;
@@ -42,16 +50,39 @@ export function showContextMenu(e: MouseEvent, sound: Sound) {
   const menu = document.createElement("div");
   menu.className = "context-menu";
 
-  const items = [
+  const items: MenuItem[] = [
     { label: "Copy Command", action: () => copyCommand(sound) },
     { label: "Copy Link", action: () => copyLink(sound) },
     { label: "Download", action: () => downloadSound(sound) },
     { label: "Properties", action: () => showProperties(sound) },
   ];
 
+  // Append admin-only actions (empty for non-admins).
+  const adminItems = getAdminMenuItems(sound.name);
+  if (adminItems.length > 0) {
+    items.push({ label: "", action: () => {}, separator: true });
+    for (const adminItem of adminItems) items.push(adminItem);
+  }
+
+  renderMenuItems(menu, items);
+
+  document.body.appendChild(menu);
+  activeMenu = menu;
+
+  positionMenu(menu, e);
+}
+
+function renderMenuItems(menu: HTMLElement, items: MenuItem[]) {
   for (const item of items) {
+    if (item.separator) {
+      const sep = document.createElement("div");
+      sep.className = "context-menu-separator";
+      menu.appendChild(sep);
+      continue;
+    }
     const el = document.createElement("div");
     el.className = "context-menu-item";
+    if (item.danger) el.classList.add("context-menu-item-danger");
     el.textContent = item.label;
     el.addEventListener("click", (clickEvent) => {
       clickEvent.stopPropagation();
@@ -60,10 +91,9 @@ export function showContextMenu(e: MouseEvent, sound: Sound) {
     });
     menu.appendChild(el);
   }
+}
 
-  document.body.appendChild(menu);
-  activeMenu = menu;
-
+function positionMenu(menu: HTMLElement, e: MouseEvent) {
   // Position menu, keeping it within viewport
   const rect = menu.getBoundingClientRect();
   let x = e.clientX;
@@ -87,41 +117,18 @@ export function showGroupContextMenu(e: MouseEvent, group: SoundGroup) {
   const menu = document.createElement("div");
   menu.className = "context-menu";
 
-  const items = [
+  const items: MenuItem[] = [
     { label: "Copy Command", action: () => copyGroupCommand(group) },
     { label: "Copy Link", action: () => copyGroupLink(group) },
     { label: "Properties", action: () => showGroupProperties(group) },
   ];
 
-  for (const item of items) {
-    const el = document.createElement("div");
-    el.className = "context-menu-item";
-    el.textContent = item.label;
-    el.addEventListener("click", (clickEvent) => {
-      clickEvent.stopPropagation();
-      closeMenu();
-      item.action();
-    });
-    menu.appendChild(el);
-  }
+  renderMenuItems(menu, items);
 
   document.body.appendChild(menu);
   activeMenu = menu;
 
-  // Position menu, keeping it within viewport
-  const rect = menu.getBoundingClientRect();
-  let x = e.clientX;
-  let y = e.clientY;
-
-  if (x + rect.width > window.innerWidth) {
-    x = window.innerWidth - rect.width - 4;
-  }
-  if (y + rect.height > window.innerHeight) {
-    y = window.innerHeight - rect.height - 4;
-  }
-
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
+  positionMenu(menu, e);
 }
 
 function copyGroupCommand(group: SoundGroup) {
