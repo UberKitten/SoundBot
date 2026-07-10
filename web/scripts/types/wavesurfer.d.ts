@@ -6,6 +6,8 @@ declare module "wavesurfer" {
   export interface WaveSurferOptions {
     container: HTMLElement;
     url?: string;
+    /** "WebAudio" = sample-accurate playback from the decoded buffer. */
+    backend?: "WebAudio" | "MediaElement";
     height?: number | "auto";
     waveColor?: string;
     progressColor?: string;

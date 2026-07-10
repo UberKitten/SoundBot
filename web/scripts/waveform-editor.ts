@@ -547,6 +547,12 @@ export function openWaveformEditor(
     // ---- create WaveSurfer ----
     const ws = WaveSurfer.create({
       container: waveContainer,
+      // WebAudio backend: playback comes from the same fully-decoded buffer the
+      // waveform is drawn from, so seeks/edge previews are sample-accurate. The
+      // default media-element backend seeks VBR MP3s via the Xing TOC (a 100-
+      // entry estimate), which lands playback early/late relative to the
+      // reported currentTime — that skew is why edge previews cut off tails.
+      backend: "WebAudio",
       height: 160,
       waveColor: "rgba(255,255,255,0.35)",
       progressColor: "rgba(66,65,179,0.9)",
