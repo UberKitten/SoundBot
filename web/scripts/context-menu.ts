@@ -63,7 +63,7 @@ export function showContextMenuAt(x: number, y: number, sound: Sound) {
   ];
 
   // Append admin-only actions (empty for non-admins).
-  const adminItems = getAdminMenuItems(sound, { x, y });
+  const adminItems = getAdminMenuItems(sound);
   if (adminItems.length > 0) {
     items.push({ label: "", action: () => {}, separator: true });
     for (const adminItem of adminItems) items.push(adminItem);

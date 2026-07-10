@@ -19,12 +19,6 @@ export interface AdminMenuItem {
   danger?: boolean;
 }
 
-/** Viewport point the menu was opened at (anchors e.g. the video popover). */
-export interface MenuAnchor {
-  x: number;
-  y: number;
-}
-
 const ICON_ADD =
   '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
 
@@ -58,10 +52,7 @@ function ensureAddButton(): HTMLButtonElement {
  * Build the admin-only context-menu items for a given sound. Returns [] when the
  * current user is not an admin so the base menu is unchanged for everyone else.
  */
-export function getAdminMenuItems(
-  sound: Sound,
-  anchor?: MenuAnchor
-): AdminMenuItem[] {
+export function getAdminMenuItems(sound: Sound): AdminMenuItem[] {
   if (!isAdmin()) return [];
   const items: AdminMenuItem[] = [
     { label: "Edit / Trim…", action: () => openTrimEditor(sound.name) },
@@ -69,7 +60,7 @@ export function getAdminMenuItems(
   if (sound.has_video) {
     items.push({
       label: "Watch clip",
-      action: () => openVideoPopover(sound.name, anchor),
+      action: () => openVideoPopover(sound.name),
     });
   }
   items.push(

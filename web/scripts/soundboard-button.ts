@@ -12,6 +12,7 @@ import { copy } from "clipboard";
 import { showContextMenu, showContextMenuAt } from "context-menu";
 import { attachLongPress } from "long-press";
 import { getDisplayDate, scheduleBackgroundTask } from "utils";
+import { notifySoundPlayed } from "video-popover";
 
 export class SoundboardButton extends HTMLElement {
   sound?: Sound;
@@ -82,6 +83,10 @@ export class SoundboardButton extends HTMLElement {
       } else {
         playButtonAudio(this.sound, this.audioChangeListener);
       }
+
+      // If the mini video player is open (admin), retarget it to this sound
+      // too — purely additive, the click above already played the sound.
+      notifySoundPlayed(this.sound);
 
       this.updateIndicators();
 
