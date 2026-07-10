@@ -673,6 +673,155 @@ class SoundService:
             timings=timings,
         )
 
+    async def add_sound_from_local_file(
+        self,
+        name: str,
+        source_path: Path,
+        original_filename: Optional[str] = None,
+        source_url: Optional[str] = None,
+        source_title: Optional[str] = None,
+        start: Optional[float] = None,
+        end: Optional[float] = None,
+        volume_adjust: int = 0,
+        added_by: Optional[str] = None,
+    ) -> OperationResult:
+        """
+        Add a new sound by COPYING an already-downloaded file into sounds_dir.
+
+        Used by the draft workflow: the media is already on disk (in
+        sounds/.drafts/<id>/), so unlike add_sound there is no re-download,
+        and unlike add_sound_from_file the bytes are streamed via
+        shutil.copy2 instead of being loaded into memory. The source file is
+        left in place — the caller owns its cleanup.
+
+        Unlike add_sound_from_file this also produces a trimmed video when
+        the source has a video stream (drafts are usually yt-dlp mkv).
+        """
+        timings: dict[str, float] = {}
+        name_lower = name.lower()
+        safe_name = sanitize_name(name)
+
+        if not safe_name:
+            return OperationResult(
+                success=False,
+                message=f"'{name}' is not a valid sound name",
+            )
+
+        if not source_path.exists():
+            return OperationResult(
+                success=False,
+                message=f"Source file not found: {source_path}",
+            )
+
+        # Check for name collisions (no overwrite in the draft flow)
+        if name_lower in state.groups:
+            return OperationResult(
+                success=False,
+                message=f"'{name}' is already a group name",
+            )
+        if name_lower in state.sounds:
+            return OperationResult(
+                success=False,
+                message=f"Sound '{name}' already exists",
+            )
+
+        sound_dir = self.get_sound_dir(name)
+        sound_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy the source into the sound dir as the original
+        import time
+
+        ext = Path(original_filename or source_path.name).suffix.lower() or ".mkv"
+        original_file = sound_dir / f"{safe_name}_original{ext}"
+
+        copy_start = time.monotonic()
+        try:
+            _ = shutil.copy2(source_path, original_file)
+            timings["File copy"] = time.monotonic() - copy_start
+        except Exception as e:
+            if sound_dir.exists():
+                shutil.rmtree(sound_dir)
+            return OperationResult(
+                success=False,
+                message=f"Failed to copy file: {e}",
+                timings=timings,
+            )
+
+        probe = await ffmpeg_service.probe(original_file)
+        if not probe or not probe.has_audio:
+            shutil.rmtree(sound_dir)
+            return OperationResult(
+                success=False,
+                message="File has no audio",
+                timings=timings,
+            )
+
+        # Process audio for Discord
+        audio_file = sound_dir / f"{safe_name}.ogg"
+        volume_db = volume_adjust * 3.0  # Each notch = 3dB
+        audio_result = await ffmpeg_service.extract_and_normalize_audio(
+            original_file,
+            audio_file,
+            start=start,
+            end=end,
+            volume_db=volume_db,
+        )
+        if audio_result.duration_seconds:
+            timings["Audio processing"] = audio_result.duration_seconds
+
+        if not audio_result.success:
+            shutil.rmtree(sound_dir)
+            return OperationResult(
+                success=False,
+                message=f"Failed to process audio: {audio_result.error}",
+                timings=timings,
+            )
+
+        # If source has video, create trimmed video too
+        trimmed_video_file = None
+        if probe.has_video:
+            video_file = sound_dir / f"{safe_name}_trimmed.mkv"
+            video_result = await ffmpeg_service.trim_video(
+                original_file,
+                video_file,
+                start=start,
+                end=end,
+            )
+            if video_result.success:
+                trimmed_video_file = video_file.name
+            if video_result.duration_seconds:
+                timings["Video trimming"] = video_result.duration_seconds
+
+        sound = Sound(
+            directory=safe_name,
+            files=SoundFiles(
+                original=original_file.name,
+                trimmed_video=trimmed_video_file,
+                trimmed_audio=audio_file.name,
+                metadata=None,
+                subtitles=None,
+            ),
+            source_url=source_url,
+            source_title=source_title,
+            source_duration=probe.duration,
+            timestamps=Timestamps(start=start, end=end),
+            volume_adjust=volume_adjust,
+            created=datetime.now(),
+            added_by=added_by,
+        )
+
+        state.sounds[name_lower] = sound
+        _ = state.save()
+
+        self._emit_update(name_lower, sound.modified, "add")
+
+        title_info = f" ({source_title})" if source_title else ""
+        return OperationResult(
+            success=True,
+            message=f"Added sound '{name}'{title_info}",
+            timings=timings,
+        )
+
     async def edit_timestamps(
         self,
         name: str,

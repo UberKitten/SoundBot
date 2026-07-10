@@ -33,6 +33,7 @@ async def get_sounds():
                 trim_start=sound.timestamps.start,
                 trim_end=sound.timestamps.end,
                 volume_adjust=sound.volume_adjust,
+                has_video=sound.files.trimmed_video is not None,
                 aliases=sound.aliases,
                 created=sound.created,
                 modified=sound.modified,

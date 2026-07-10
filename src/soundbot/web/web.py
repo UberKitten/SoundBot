@@ -1,10 +1,10 @@
 import asyncio
 import logging
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import override
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import ORJSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
@@ -35,6 +35,34 @@ class CachedStaticFiles(StaticFiles):
         # Cache for 1 year, immutable means don't even check for updates
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
+
+
+# Raw source video must not be publicly downloadable — admins get a
+# transcoded clip via the authed /api/admin/sounds/{name}/video endpoint.
+VIDEO_EXTENSIONS = frozenset(
+    {".mkv", ".mp4", ".webm", ".mov", ".m4v", ".avi"}
+)
+
+
+class SoundStaticFiles(CachedStaticFiles):
+    """Static serving for /sounds with raw video + dot-paths blocked.
+
+    Rejects (with a 404, to avoid leaking file existence):
+    - any file with a video extension (raw originals/trims stay private)
+    - any path with a segment starting with "." (blocks .drafts/, dotfiles)
+
+    Audio (.ogg, .mp3) and metadata remain public — the soundboard and the
+    waveform editor rely on them.
+    """
+
+    @override
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        segments = PurePosixPath(path).parts
+        if any(segment.startswith(".") for segment in segments):
+            raise HTTPException(status_code=404)
+        if PurePosixPath(path).suffix.lower() in VIDEO_EXTENSIONS:
+            raise HTTPException(status_code=404)
+        return await super().get_response(path, scope)
 
 
 def _on_sound_update(name: str, modified: datetime, action: str):
@@ -97,7 +125,7 @@ def get_web():
         if sounds_path.exists():
             web.mount(
                 "/sounds",
-                CachedStaticFiles(directory=sounds_path.absolute()),
+                SoundStaticFiles(directory=sounds_path.absolute()),
                 name="sounds",
             )
         else:
