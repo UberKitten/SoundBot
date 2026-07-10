@@ -7,14 +7,22 @@
  */
 
 import { openAddSoundModal } from "add-sound-modal";
+import { Sound } from "audio";
 import { isAdmin, onAuthChange } from "auth";
 import { openDeleteModal, openRenameModal } from "sound-actions";
 import { openTrimEditor } from "trim-editor";
+import { openVideoPopover } from "video-popover";
 
 export interface AdminMenuItem {
   label: string;
   action: () => void;
   danger?: boolean;
+}
+
+/** Viewport point the menu was opened at (anchors e.g. the video popover). */
+export interface MenuAnchor {
+  x: number;
+  y: number;
 }
 
 const ICON_ADD =
@@ -50,13 +58,25 @@ function ensureAddButton(): HTMLButtonElement {
  * Build the admin-only context-menu items for a given sound. Returns [] when the
  * current user is not an admin so the base menu is unchanged for everyone else.
  */
-export function getAdminMenuItems(soundName: string): AdminMenuItem[] {
+export function getAdminMenuItems(
+  sound: Sound,
+  anchor?: MenuAnchor
+): AdminMenuItem[] {
   if (!isAdmin()) return [];
-  return [
-    { label: "Edit / Trim…", action: () => openTrimEditor(soundName) },
-    { label: "Rename…", action: () => openRenameModal(soundName) },
-    { label: "Delete…", action: () => openDeleteModal(soundName), danger: true },
+  const items: AdminMenuItem[] = [
+    { label: "Edit / Trim…", action: () => openTrimEditor(sound.name) },
   ];
+  if (sound.has_video) {
+    items.push({
+      label: "Watch clip",
+      action: () => openVideoPopover(sound.name, anchor),
+    });
+  }
+  items.push(
+    { label: "Rename…", action: () => openRenameModal(sound.name) },
+    { label: "Delete…", action: () => openDeleteModal(sound.name), danger: true }
+  );
+  return items;
 }
 
 /** Initialise admin UI: toggle the add button with auth state. */

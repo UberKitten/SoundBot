@@ -37,6 +37,7 @@ export interface Sound {
   twitch_plays: number;
   web_plays: number;
   is_legacy: boolean;
+  has_video: boolean;
 }
 
 export interface SoundGroup {

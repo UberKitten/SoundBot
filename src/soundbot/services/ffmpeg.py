@@ -250,6 +250,81 @@ class FFmpegService:
             logger.error(f"Error trimming video: {e}")
             return ProcessResult(success=False, error=str(e))
 
+    async def make_browser_video(
+        self,
+        input_file: Path,
+        output_file: Path,
+        start: Optional[float] = None,
+        end: Optional[float] = None,
+    ) -> ProcessResult:
+        """
+        Transcode a video to a browser/iOS-friendly MP4 (H.264 + AAC).
+
+        The stored originals/trims are mkv (typically vp9/av1 + opus) which
+        browsers — especially iOS <video> — won't play. This produces a
+        faststart MP4 capped at 1280px wide, optionally trimming to
+        start/end (used when falling back to the untrimmed original).
+        """
+        args = ["ffmpeg", "-y"]
+
+        # Input seeking (faster if before -i)
+        if start is not None:
+            args.extend(["-ss", str(start)])
+
+        args.extend(["-i", str(input_file)])
+
+        if end is not None:
+            duration = end - (start or 0)
+            args.extend(["-t", str(duration)])
+
+        args.extend(
+            [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "23",
+                "-vf",
+                "scale='min(1280,iw)':-2",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-movflags",
+                "+faststart",
+                str(output_file),
+            ]
+        )
+
+        try:
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+
+            start_time = time.monotonic()
+            logger.info(f"Making browser video: {input_file} -> {output_file}")
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            elapsed = time.monotonic() - start_time
+
+            if proc.returncode != 0:
+                error = stderr.decode() if stderr else "Unknown error"
+                logger.error(f"FFmpeg failed: {error}")
+                return ProcessResult(
+                    success=False, error=error, duration_seconds=elapsed
+                )
+
+            return ProcessResult(
+                success=True, output_file=output_file, duration_seconds=elapsed
+            )
+
+        except Exception as e:
+            logger.error(f"Error making browser video: {e}")
+            return ProcessResult(success=False, error=str(e))
+
     async def get_duration(self, input_file: Path) -> Optional[float]:
         """Get the duration of a media file in seconds."""
         result = await self.probe(input_file)

@@ -10,8 +10,9 @@ import {
 } from "audio";
 import { copy } from "clipboard";
 import { GROUPS_API_PATH, SOUNDS_API_PATH, getRandomPrefix } from "config";
-import { showGroupContextMenu } from "context-menu";
+import { showGroupContextMenu, showGroupContextMenuAt } from "context-menu";
 import { init } from "dom-init";
+import { attachLongPress } from "long-press";
 import {
   alphaSort,
   cancelBackgroundTasks,
@@ -604,6 +605,12 @@ export class SoundboardApp extends HTMLElement {
         stopProgress();
         delete button.dataset.playingSound;
       }
+    });
+
+    // Touch long-press opens the same menu (iOS never fires contextmenu for a
+    // long-press). Registered before contextmenu for Android double-fire order.
+    attachLongPress(button, (x, y) => {
+      showGroupContextMenuAt(x, y, group);
     });
 
     button.addEventListener("contextmenu", (e) => {

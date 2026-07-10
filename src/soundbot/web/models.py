@@ -19,6 +19,9 @@ class SoundResponse(BaseModel):
     trim_end: Optional[float] = None
     # Audio settings - volume adjustment in notches (0 = normal)
     volume_adjust: int = 0
+    # Whether a trimmed video exists (admin "Watch clip" affordance).
+    # Derived cheaply from files.trimmed_video — no probe.
+    has_video: bool = False
     # Alternate names
     aliases: List[str] = []
     # Metadata
