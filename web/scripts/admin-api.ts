@@ -160,9 +160,53 @@ export async function fetchAuthMe(): Promise<AuthMe> {
   );
 }
 
-/** Navigate the browser to the Discord OAuth login flow. */
+/** Navigate the browser to the Discord OAuth login flow (legacy cookie-state). */
 export function startLogin(): void {
   window.location.href = `${AUTH_BASE}/login`;
+}
+
+export interface LoginHandoff {
+  handoff_id: string;
+  authorize_url: string;
+}
+
+/**
+ * Create a server-side login handoff (iOS PWA cookie-jar-safe flow).
+ * Throws on failure (e.g. 503 when auth isn't configured).
+ */
+export async function createLoginHandoff(): Promise<LoginHandoff> {
+  return request<LoginHandoff>(`${AUTH_BASE}/handoff`, jsonInit("POST"), asJson);
+}
+
+/** Result of a handoff claim attempt. */
+export type ClaimResult =
+  | { status: "claimed"; me: AuthMe }
+  | { status: "pending" }
+  | { status: "gone" };
+
+/**
+ * Try to claim a completed login handoff. On success the response sets the
+ * session cookie in THIS context's cookie jar.
+ */
+export async function claimLoginHandoff(
+  handoffId: string
+): Promise<ClaimResult> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${AUTH_BASE}/handoff/${encodeURIComponent(handoffId)}/claim`,
+      jsonInit("POST")
+    );
+  } catch {
+    // Network error — treat as still pending; the caller will retry.
+    return { status: "pending" };
+  }
+  if (response.status === 202) return { status: "pending" };
+  if (response.ok) {
+    return { status: "claimed", me: (await response.json()) as AuthMe };
+  }
+  // 404 (unknown/expired/claimed), 503, anything else: stop trying.
+  return { status: "gone" };
 }
 
 export async function logout(): Promise<void> {

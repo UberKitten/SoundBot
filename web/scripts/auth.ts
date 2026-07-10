@@ -6,7 +6,14 @@
  * is a no-op for anonymous users beyond a subtle "Log in" button.
  */
 
-import { AuthMe, fetchAuthMe, logout, startLogin } from "admin-api";
+import {
+  AuthMe,
+  claimLoginHandoff,
+  createLoginHandoff,
+  fetchAuthMe,
+  logout,
+  startLogin,
+} from "admin-api";
 import { showToast } from "toast";
 
 type AuthListener = (state: AuthMe) => void;
@@ -52,6 +59,130 @@ function setAuthState(state: AuthMe): void {
   }
 }
 
+/* ---- login handoff (iOS PWA cookie-jar-safe flow) ---- */
+
+const HANDOFF_STORAGE_KEY = "soundbot_login_handoff";
+const HANDOFF_MAX_AGE_MS = 15 * 60 * 1000;
+const HANDOFF_POLL_INTERVAL_MS = 3000;
+const HANDOFF_POLL_MAX_MS = 5 * 60 * 1000;
+
+let handoffPollTimer: number | null = null;
+
+function readStoredHandoff(): string | null {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(HANDOFF_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as { id: unknown }).id === "string" &&
+      typeof (parsed as { at: unknown }).at === "number"
+    ) {
+      const { id, at } = parsed as { id: string; at: number };
+      if (Date.now() - at <= HANDOFF_MAX_AGE_MS) return id;
+    }
+  } catch {
+    // corrupt — fall through to clear
+  }
+  clearStoredHandoff();
+  return null;
+}
+
+function storeHandoff(id: string): void {
+  try {
+    localStorage.setItem(
+      HANDOFF_STORAGE_KEY,
+      JSON.stringify({ id, at: Date.now() })
+    );
+  } catch {
+    // Storage unavailable — claim-on-return just won't work; login in a
+    // single-jar browser still completes via the callback's cookie.
+  }
+}
+
+function clearStoredHandoff(): void {
+  try {
+    localStorage.removeItem(HANDOFF_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function stopHandoffPoll(): void {
+  if (handoffPollTimer !== null) {
+    window.clearInterval(handoffPollTimer);
+    handoffPollTimer = null;
+  }
+}
+
+/**
+ * Try to claim a pending login handoff. Safe to call any time; no-ops when
+ * nothing is stored. On success, updates auth state in place (no reload).
+ */
+async function tryClaimHandoff(): Promise<void> {
+  const id = readStoredHandoff();
+  if (!id) {
+    stopHandoffPoll();
+    return;
+  }
+  // Already logged in (e.g. same-window redirect set the cookie and
+  // /api/auth/me picked it up) — the handoff is moot, don't fight it.
+  if (current.authenticated) {
+    clearStoredHandoff();
+    stopHandoffPoll();
+    return;
+  }
+
+  const result = await claimLoginHandoff(id);
+  if (result.status === "claimed") {
+    clearStoredHandoff();
+    stopHandoffPoll();
+    setAuthState(result.me);
+    const name = result.me.user?.username;
+    showToast(name ? `Logged in as ${name}` : "Logged in", "success");
+  } else if (result.status === "gone") {
+    clearStoredHandoff();
+    stopHandoffPoll();
+  }
+  // pending: keep the stored id; a later trigger or poll will retry.
+}
+
+/** Poll for the handoff result while the page is visible, up to 5 minutes. */
+function startHandoffPoll(): void {
+  stopHandoffPoll();
+  const startedAt = Date.now();
+  handoffPollTimer = window.setInterval(() => {
+    if (Date.now() - startedAt > HANDOFF_POLL_MAX_MS) {
+      stopHandoffPoll();
+      return;
+    }
+    if (document.visibilityState !== "visible") return;
+    void tryClaimHandoff();
+  }, HANDOFF_POLL_INTERVAL_MS);
+}
+
+/**
+ * Begin a login via the server-side handoff flow. Falls back to the legacy
+ * /api/auth/login navigation if the handoff can't be created.
+ */
+async function beginLogin(): Promise<void> {
+  try {
+    const handoff = await createLoginHandoff();
+    storeHandoff(handoff.handoff_id);
+    startHandoffPoll();
+    window.location.href = handoff.authorize_url;
+  } catch (e) {
+    console.warn("[auth] handoff create failed, using legacy login:", e);
+    startLogin();
+  }
+}
+
 /* ---- header UI ---- */
 
 const ICON_LOGIN =
@@ -90,7 +221,7 @@ function renderLoggedOut(container: HTMLElement): void {
   btn.className = "auth-login-btn";
   btn.title = "Log in with Discord";
   btn.innerHTML = `${ICON_LOGIN}<span>Log in</span>`;
-  btn.addEventListener("click", () => startLogin());
+  btn.addEventListener("click", () => void beginLogin());
   container.appendChild(btn);
 }
 
@@ -194,9 +325,38 @@ function handleLoginError(): void {
   history.replaceState(null, "", url.pathname + url.search);
 }
 
+/**
+ * Handle ?login_done=1 after a handoff-flow callback. This page may be the
+ * iOS in-app Safari sheet — if so, the user can close it and return to the
+ * PWA (which claims the session). Shown only once auth state confirms login.
+ */
+function handleLoginDone(): void {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.get("login_done")) return;
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete("login_done");
+  history.replaceState(null, "", url.pathname + url.search);
+
+  let shown = false;
+  const unsubscribe = onAuthChange((state) => {
+    if (shown || !state.authenticated) return;
+    shown = true;
+    showToast(
+      "Logged in — if you started from the app, you can close this window and return",
+      "success",
+      8000
+    );
+    // Defer: unsubscribing mid-notification would splice the listener list
+    // while setAuthState iterates it.
+    window.setTimeout(unsubscribe, 0);
+  });
+}
+
 /** Initialise auth: render header, fetch state, wire global handlers. */
 export function initAuth(): void {
   handleLoginError();
+  handleLoginDone();
 
   // Close any open avatar menu on outside click / Escape.
   document.addEventListener("click", () => {
@@ -207,10 +367,29 @@ export function initAuth(): void {
 
   onAuthChange((state) => renderHeader(state));
 
+  // Claim a pending login handoff the moment the user returns to the PWA
+  // (closing the iOS in-app Safari sheet fires these).
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void tryClaimHandoff();
+  });
+  window.addEventListener("focus", () => void tryClaimHandoff());
+  window.addEventListener("pageshow", () => void tryClaimHandoff());
+
+  const claimAfterInit = () => {
+    // If a login is still pending from before a reload, resume polling too
+    // (tryClaimHandoff stops it again on success/expiry/already-logged-in).
+    if (readStoredHandoff()) startHandoffPoll();
+    void tryClaimHandoff();
+  };
+
   fetchAuthMe()
-    .then((state) => setAuthState(state))
+    .then((state) => {
+      setAuthState(state);
+      claimAfterInit();
+    })
     .catch((e) => {
       console.warn("[auth] failed to fetch auth state:", e);
       setAuthState(LOGGED_OUT);
+      claimAfterInit();
     });
 }
