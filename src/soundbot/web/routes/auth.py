@@ -18,6 +18,7 @@ from soundbot.web.dependencies import (
     make_session_cookie,
     read_session,
 )
+from soundbot.web.urls import public_base_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -27,15 +28,8 @@ DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
 DISCORD_USER_URL = "https://discord.com/api/users/@me"
 
 
-def _redirect_base() -> str:
-    """Base URL for OAuth redirects."""
-    if settings.oauth_redirect_base:
-        return settings.oauth_redirect_base.rstrip("/")
-    return f"https://{settings.web_ui_url}"
-
-
 def _redirect_uri() -> str:
-    return f"{_redirect_base()}/api/auth/callback"
+    return f"{public_base_url()}/api/auth/callback"
 
 
 def avatar_url(user_id: str, avatar_hash: Optional[str]) -> str:

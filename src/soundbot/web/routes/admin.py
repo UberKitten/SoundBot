@@ -1,11 +1,11 @@
 import logging
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from soundbot.services.clips import ClipError, ensure_clip
 from soundbot.services.ffmpeg import ffmpeg_service
 from soundbot.services.sounds import OperationResult, sound_service
 from soundbot.web.dependencies import AdminUser, require_admin
@@ -123,75 +123,34 @@ async def get_waveform(name: str):
     }
 
 
-def _needs_regenerate(output: Path, source: Path) -> bool:
-    """True if output is missing or older than the source (covers re-trim)."""
-    if not output.exists():
-        return True
-    try:
-        return output.stat().st_mtime < source.stat().st_mtime
-    except OSError:
-        return True
-
-
 @router.get("/sounds/{name}/video")
 async def get_clip_video(name: str):
     """Serve a browser-playable MP4 of the sound's clip (admin only).
 
-    Transcodes on demand to {safe}_clip.mp4 in the sound dir; regenerated
-    whenever the source (trimmed video, or original) is newer — e.g. after
-    a re-trim rewrites {safe}_trimmed.mkv.
+    Ensures {safe}_clip.mp4 exists (shared helper — regenerated whenever
+    the source trimmed video / original is newer, e.g. after a re-trim).
+    Normally already generated eagerly at mutation time or by the startup
+    backfill, so this is just an mtime check.
     """
     sound = sound_service.get_sound(name)
     if not sound:
         raise HTTPException(status_code=404, detail=f"Sound '{name}' not found")
 
-    sound_dir = sound_service.sounds_dir / sound.directory
-
-    # Prefer the already-trimmed video; fall back to the original (with the
-    # trim applied during transcode) if it has a video stream.
-    source_path: Optional[Path] = None
-    trim_start: Optional[float] = None
-    trim_end: Optional[float] = None
-
-    if sound.files.trimmed_video:
-        candidate = sound_dir / sound.files.trimmed_video
-        if candidate.exists():
-            source_path = candidate
-
-    if source_path is None:
-        # files.original may be a bare filename or an absolute path
-        # (external clips); pathlib's / preserves an absolute RHS.
-        original_path = sound_dir / sound.files.original
-        if original_path.exists():
-            probe = await ffmpeg_service.probe(original_path)
-            if probe and probe.has_video:
-                source_path = original_path
-                trim_start = sound.timestamps.start
-                trim_end = sound.timestamps.end
-
-    if source_path is None:
-        raise HTTPException(status_code=409, detail="Sound has no video")
-
-    clip_path = sound_dir / f"{sound.directory}_clip.mp4"
-
-    if _needs_regenerate(clip_path, source_path):
-        result = await ffmpeg_service.make_browser_video(
-            source_path,
-            clip_path,
-            start=trim_start,
-            end=trim_end,
+    try:
+        result = await ensure_clip(sound, sound_service.sounds_dir)
+    except ClipError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to transcode clip video: {e}",
         )
-        if not result.success:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to transcode clip video: {result.error}",
-            )
+    if result is None:
+        raise HTTPException(status_code=409, detail="Sound has no video")
 
     # FileResponse in starlette 0.50 handles Range requests natively (206 +
     # Content-Range) — required for iOS <video>. Auth-gated, so keep it out
     # of shared caches.
     return FileResponse(
-        clip_path,
+        result.path,
         media_type="video/mp4",
         headers={"Cache-Control": "private, no-store"},
     )

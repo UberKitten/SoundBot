@@ -335,6 +335,70 @@ class SoundCommands(commands.Cog):
         emoji = "✅" if result.success else "❌"
         _ = await interaction.followup.send(f"{emoji} {result.full_message()}")
 
+    @app_commands.command(name="clip")
+    @app_commands.describe(name="Name of the sound")
+    async def clip_sound(self, interaction: Interaction, name: str):
+        """Post a video clip of a sound (plays inline in Discord)."""
+        # Import here (like web/dependencies does for the bot) to keep the
+        # web helpers out of the discord module import graph at import time.
+        from soundbot.services.clips import (
+            ClipError,
+            ensure_clip,
+            resolve_clip_source,
+        )
+        from soundbot.web.clipsign import build_clip_share_url
+
+        # Strip any command prefix from the name
+        name = strip_command_prefix(name)
+
+        resolved = sound_service.resolve_sound_name(name)
+        if not resolved:
+            _ = await interaction.response.send_message(
+                f"❌ Sound '{name}' not found", ephemeral=True
+            )
+            return
+        canonical_name, sound = resolved
+
+        if not settings.session_secret:
+            _ = await interaction.response.send_message(
+                "❌ Clip links are not configured (SESSION_SECRET is unset)",
+                ephemeral=True,
+            )
+            return
+
+        # Quick pre-check (a stat + at most one probe) so the no-video case
+        # can respond ephemerally — ephemerality is locked in at defer time.
+        sound_dir = sound_service.sounds_dir / sound.directory
+        if await resolve_clip_source(sound, sound_dir) is None:
+            _ = await interaction.response.send_message(
+                f"❌ Sound '{canonical_name}' has no video", ephemeral=True
+            )
+            return
+
+        # A first-time transcode can exceed the 3-second interaction limit
+        # (backfill may not have reached this sound yet) — defer + followup.
+        _ = await interaction.response.defer(thinking=True)
+
+        try:
+            result = await ensure_clip(sound, sound_service.sounds_dir)
+        except ClipError as e:
+            logger.error(f"/clip generation failed for '{canonical_name}': {e}")
+            _ = await interaction.followup.send(
+                f"❌ Failed to generate a clip for '{canonical_name}'"
+            )
+            return
+
+        if result is None:
+            _ = await interaction.followup.send(
+                f"❌ Sound '{canonical_name}' has no video"
+            )
+            return
+
+        # A bare direct .mp4 link as message content is what makes Discord
+        # render the native inline video player — no embed object.
+        url = build_clip_share_url(canonical_name)
+        _ = await interaction.followup.send(url)
+
     @app_commands.command(name="info")
     @app_commands.describe(name="Name of the sound or group")
     async def sound_info(self, interaction: Interaction, name: str):

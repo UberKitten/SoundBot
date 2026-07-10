@@ -21,6 +21,7 @@ class ProbeResult(BaseModel):
     has_video: bool = False
     has_audio: bool = False
     video_codec: Optional[str] = None
+    width: Optional[int] = None
     audio_codec: Optional[str] = None
     sample_rate: Optional[int] = None
     channels: Optional[int] = None
@@ -34,6 +35,9 @@ class ProcessResult(BaseModel):
     output_file: Optional[Path] = None
     error: Optional[str] = None
     duration_seconds: Optional[float] = None  # How long the processing took
+    # For make_browser_video: True when the video stream was stream-copied
+    # (remux) instead of re-encoded. None for other operations.
+    remuxed: Optional[bool] = None
 
 
 class FFmpegService:
@@ -86,6 +90,9 @@ class FFmpegService:
                 if codec_type == "video":
                     result.has_video = True
                     result.video_codec = stream.get("codec_name")
+                    width = stream.get("width")
+                    if isinstance(width, int) and width > 0:
+                        result.width = width
                 elif codec_type == "audio":
                     result.has_audio = True
                     result.audio_codec = stream.get("codec_name")
@@ -258,13 +265,28 @@ class FFmpegService:
         end: Optional[float] = None,
     ) -> ProcessResult:
         """
-        Transcode a video to a browser/iOS-friendly MP4 (H.264 + AAC).
+        Produce a browser/iOS/Discord-friendly MP4 (H.264 + AAC).
 
-        The stored originals/trims are mkv (typically vp9/av1 + opus) which
-        browsers — especially iOS <video> — won't play. This produces a
-        faststart MP4 capped at 1280px wide, optionally trimming to
-        start/end (used when falling back to the untrimmed original).
+        Smart path: if the source video is already H.264, needs no scaling
+        (width ≤ 1280), and no trim is requested, the video stream is
+        stream-copied (remux — near-instant). Otherwise it's re-encoded with
+        libx264 capped at 1280px wide, optionally trimming to start/end
+        (used when falling back to the untrimmed original).
+
+        Audio is ALWAYS transcoded to AAC — opus-in-mp4 doesn't fly with
+        Safari or Discord's inline player. Output is always +faststart.
         """
+        remux = False
+        if start is None and end is None:
+            probe = await self.probe(input_file)
+            if (
+                probe is not None
+                and probe.video_codec == "h264"
+                and probe.width is not None
+                and probe.width <= 1280
+            ):
+                remux = True
+
         args = ["ffmpeg", "-y"]
 
         # Input seeking (faster if before -i)
@@ -277,16 +299,24 @@ class FFmpegService:
             duration = end - (start or 0)
             args.extend(["-t", str(duration)])
 
+        if remux:
+            args.extend(["-c:v", "copy"])
+        else:
+            args.extend(
+                [
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "23",
+                    "-vf",
+                    "scale='min(1280,iw)':-2",
+                ]
+            )
+
         args.extend(
             [
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-crf",
-                "23",
-                "-vf",
-                "scale='min(1280,iw)':-2",
                 "-c:a",
                 "aac",
                 "-b:a",
@@ -301,7 +331,10 @@ class FFmpegService:
             output_file.parent.mkdir(parents=True, exist_ok=True)
 
             start_time = time.monotonic()
-            logger.info(f"Making browser video: {input_file} -> {output_file}")
+            mode = "remux" if remux else "transcode"
+            logger.info(
+                f"Making browser video ({mode}): {input_file} -> {output_file}"
+            )
             proc = await asyncio.create_subprocess_exec(
                 *args,
                 stdout=asyncio.subprocess.PIPE,
@@ -318,7 +351,10 @@ class FFmpegService:
                 )
 
             return ProcessResult(
-                success=True, output_file=output_file, duration_seconds=elapsed
+                success=True,
+                output_file=output_file,
+                duration_seconds=elapsed,
+                remuxed=remux,
             )
 
         except Exception as e:

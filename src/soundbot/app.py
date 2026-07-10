@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from pathlib import Path
 
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
@@ -7,6 +8,7 @@ from hypercorn.config import Config
 from soundbot.core.settings import settings
 from soundbot.core.state import state
 from soundbot.discord.client import soundbot_client
+from soundbot.services.clips import backfill_clips
 from soundbot.services.ytdlp import ytdlp_service
 from soundbot.web.logger import HypercornLogger
 from soundbot.web.web import get_web
@@ -35,6 +37,18 @@ async def init():
     register_webhook_notifications()
 
 
+async def backfill_clips_task():
+    """One-time (per boot) self-heal: ensure browser clips exist for all
+    sounds with video. Cheap once clips exist (mtime checks only).
+
+    Guarded so it can never take the app down.
+    """
+    try:
+        await backfill_clips(Path(settings.sounds_folder))
+    except Exception as e:
+        logger.error(f"Clip backfill task failed: {e}")
+
+
 async def update_ytdlp_periodically():
     """Background task to update yt-dlp periodically."""
     while True:
@@ -53,11 +67,13 @@ async def run():
     try:
         await init()
 
-        # Start all services concurrently
+        # Start all services concurrently. The clip backfill runs as a
+        # background task alongside — it never blocks web/bot startup.
         _ = await asyncio.gather(
             run_web(),
             run_bot(),
             update_ytdlp_periodically(),
+            backfill_clips_task(),
         )
     finally:
         _ = state.save()

@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from .admin import router as admin
 from .auth import router as auth
+from .clips import router as clips
 from .drafts import router as drafts
 from .index import router as index
 from .settings import router as settings
@@ -17,3 +18,4 @@ router.include_router(ws)
 router.include_router(auth)
 router.include_router(admin)
 router.include_router(drafts)
+router.include_router(clips)

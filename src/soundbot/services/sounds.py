@@ -18,6 +18,7 @@ from soundbot.models.sounds import (
     SoundGroupData,
     Timestamps,
 )
+from soundbot.services.clips import ClipError, ensure_clip
 from soundbot.services.ffmpeg import ffmpeg_service
 from soundbot.services.ytdlp import ytdlp_service
 
@@ -123,6 +124,34 @@ class SoundService:
     def sounds_dir(self) -> Path:
         """Get the base sounds directory."""
         return Path(settings.sounds_folder)
+
+    async def _generate_clip(
+        self, sound: Sound, timings: dict[str, float], force: bool = False
+    ) -> None:
+        """Eagerly generate the browser clip after a mutation.
+
+        Best-effort: a clip failure never fails the operation (the sound
+        itself is fine; the lazy path in the video endpoints remains as a
+        safety net). Records the generation time in timings.
+
+        force=True regenerates even when mtimes look fresh — needed when the
+        trim window changed but the clip's source (an untrimmed original)
+        has an unchanged mtime.
+        """
+        try:
+            result = await ensure_clip(sound, self.sounds_dir, force=force)
+        except ClipError as e:
+            logger.warning(
+                f"Eager clip generation failed for '{sound.directory}': {e}"
+            )
+            return
+        except Exception as e:
+            logger.warning(
+                f"Eager clip generation errored for '{sound.directory}': {e}"
+            )
+            return
+        if result is not None and result.generated and result.duration_seconds:
+            timings["Clip generation"] = result.duration_seconds
 
     def get_sound_dir(self, name: str) -> Path:
         """Get the directory for a specific sound."""
@@ -341,6 +370,10 @@ class SoundService:
         state.sounds[name_lower] = sound
         _ = state.save()
 
+        # Eagerly generate the browser clip so playback links never hit a
+        # lazy transcode delay. Best-effort — never fails the add.
+        await self._generate_clip(sound, timings)
+
         # Notify WebSocket clients of the update
         emit_action = "edit" if overwrite else "add"
         self._emit_update(name_lower, sound.modified, emit_action)
@@ -492,6 +525,9 @@ class SoundService:
 
         state.sounds[name_lower] = sound
         _ = state.save()
+
+        # Eagerly generate the browser clip (best-effort).
+        await self._generate_clip(sound, timings)
 
         emit_action = "edit" if existing_sound else "add"
         self._emit_update(name_lower, sound.modified, emit_action)
@@ -662,6 +698,11 @@ class SoundService:
         state.sounds[name_lower] = sound
         _ = state.save()
 
+        # Eagerly generate the browser clip (best-effort). Uploads have no
+        # trimmed video, but the original may still carry a video stream
+        # (e.g. an attached .mp4/.mkv).
+        await self._generate_clip(sound, timings)
+
         # Notify WebSocket clients of the update
         emit_action = "edit" if overwrite else "add"
         self._emit_update(name_lower, sound.modified, emit_action)
@@ -813,6 +854,9 @@ class SoundService:
         state.sounds[name_lower] = sound
         _ = state.save()
 
+        # Eagerly generate the browser clip (best-effort).
+        await self._generate_clip(sound, timings)
+
         self._emit_update(name_lower, sound.modified, "add")
 
         title_info = f" ({source_title})" if source_title else ""
@@ -914,6 +958,11 @@ class SoundService:
         sound.timestamps = Timestamps(start=new_start, end=new_end)
         sound.modified = datetime.now()
         _ = state.save()
+
+        # Eagerly regenerate the browser clip (best-effort). force=True:
+        # when the clip's source is the untrimmed original, the new trim
+        # window changes the clip content without touching the source mtime.
+        await self._generate_clip(sound, timings, force=True)
 
         # Notify WebSocket clients of the update
         self._emit_update(name_lower, sound.modified, "edit")
@@ -1129,6 +1178,10 @@ class SoundService:
             sound.modified = datetime.now()
 
             _ = state.save()
+
+            # Eagerly regenerate the browser clip (best-effort). The old
+            # clip was deleted with the rest of the sound dir above.
+            await self._generate_clip(sound, timings)
 
             # Notify WebSocket clients of the update
             self._emit_update(name_lower, sound.modified, "edit")
