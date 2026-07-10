@@ -1,44 +1,42 @@
 /**
- * Add-sound modal. Collects name + URL, POSTs to the admin API (a slow call —
- * the server downloads via yt-dlp), and on success immediately opens the trim
- * editor for the returned canonical name.
+ * Add-sound modal, draft-first: collects ONLY a URL, POSTs to the drafts API
+ * (a slow call — the server downloads via yt-dlp), and on success opens the
+ * draft editor where the sound is trimmed and named BEFORE anything is saved.
  */
 
-import { ApiError, addSound } from "admin-api";
+import { ApiError, createDraft, discardDraft } from "admin-api";
+import { openDraftEditor } from "draft-editor";
 import { openModal } from "modal";
-import { showToast } from "toast";
-import { openTrimEditor } from "trim-editor";
-
-const NAME_MAXLEN = 50;
 
 export function openAddSoundModal(onAdded?: () => void): void {
-  const modal = openModal({ title: "Add sound", className: "add-sound" });
+  let submitting = false;
+  let dismissed = false;
+
+  const modal = openModal({
+    title: "Add sound",
+    className: "add-sound",
+    beforeClose: () => {
+      if (submitting) {
+        return window.confirm(
+          "Still downloading — abandon adding this sound?"
+        );
+      }
+      return true;
+    },
+    onClosed: () => {
+      dismissed = true;
+    },
+  });
 
   const form = document.createElement("form");
   form.className = "admin-form";
   form.noValidate = true;
 
-  // -- name field --
-  const nameField = document.createElement("div");
-  nameField.className = "admin-field";
-  const nameLabel = document.createElement("label");
-  nameLabel.className = "admin-label";
-  nameLabel.textContent = "Name";
-  nameLabel.htmlFor = "add-sound-name";
-  const nameInput = document.createElement("input");
-  nameInput.id = "add-sound-name";
-  nameInput.type = "text";
-  nameInput.className = "admin-input";
-  nameInput.maxLength = NAME_MAXLEN;
-  nameInput.autocomplete = "off";
-  nameInput.required = true;
-  nameInput.placeholder = "e.g. airhorn";
-  const nameHint = document.createElement("div");
-  nameHint.className = "admin-hint";
-  nameHint.textContent = `Up to ${NAME_MAXLEN} chars; sanitized & lowercased by the server.`;
-  nameField.appendChild(nameLabel);
-  nameField.appendChild(nameInput);
-  nameField.appendChild(nameHint);
+  // -- explainer --
+  const explainer = document.createElement("p");
+  explainer.className = "admin-explainer";
+  explainer.textContent =
+    "Paste a video/audio URL — you'll trim and name it before anything is saved.";
 
   // -- url field --
   const urlField = document.createElement("div");
@@ -79,31 +77,28 @@ export function openAddSoundModal(onAdded?: () => void): void {
   const submitBtn = document.createElement("button");
   submitBtn.type = "submit";
   submitBtn.className = "trim-btn trim-btn-primary";
-  submitBtn.textContent = "Add";
+  submitBtn.textContent = "Download";
 
   actions.appendChild(status);
   actions.appendChild(cancelBtn);
   actions.appendChild(submitBtn);
 
-  form.appendChild(nameField);
+  form.appendChild(explainer);
   form.appendChild(urlField);
   form.appendChild(errorLine);
   form.appendChild(actions);
   modal.body.appendChild(form);
 
-  let submitting = false;
-
   const setBusy = (busy: boolean) => {
     submitting = busy;
-    nameInput.disabled = busy;
     urlInput.disabled = busy;
     submitBtn.disabled = busy;
     cancelBtn.disabled = busy;
-    submitBtn.textContent = busy ? "Adding…" : "Add";
+    submitBtn.textContent = busy ? "Downloading…" : "Download";
     status.hidden = !busy;
     if (busy) {
       status.innerHTML =
-        '<span class="admin-spinner" aria-hidden="true"></span>downloading & processing — can take a minute…';
+        '<span class="admin-spinner" aria-hidden="true"></span>downloading… this can take a minute';
       modal.modal.classList.add("busy");
     } else {
       modal.modal.classList.remove("busy");
@@ -120,13 +115,7 @@ export function openAddSoundModal(onAdded?: () => void): void {
     if (submitting) return;
     errorLine.hidden = true;
 
-    const name = nameInput.value.trim();
     const url = urlInput.value.trim();
-    if (!name) {
-      showError("Please enter a name.");
-      nameInput.focus();
-      return;
-    }
     if (!url) {
       showError("Please enter a URL.");
       urlInput.focus();
@@ -134,15 +123,20 @@ export function openAddSoundModal(onAdded?: () => void): void {
     }
 
     setBusy(true);
-    addSound({ name, url })
-      .then((result) => {
-        // Success — close this modal and jump straight into trimming.
+    createDraft(url)
+      .then((draft) => {
+        if (dismissed) {
+          // User abandoned the modal mid-download — clean up the draft.
+          discardDraft(draft.draft_id);
+          return;
+        }
+        // Success — close this modal and jump into the draft editor.
+        submitting = false;
         modal.forceClose();
-        showToast(`Added "${result.name}".`, "success");
-        onAdded?.();
-        openTrimEditor(result.name, onAdded);
+        openDraftEditor(draft, onAdded);
       })
       .catch((err) => {
+        if (dismissed) return;
         setBusy(false);
         if (err instanceof ApiError) {
           showError(err.message);

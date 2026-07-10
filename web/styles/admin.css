@@ -111,6 +111,17 @@
   background-color: var(--primary-color);
 }
 
+/* ---- long-press (touch) ---- */
+
+/* Suppress the iOS callout / text selection during a long-press so our own
+   context menu can open instead. */
+soundboard-button,
+.group-button {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* ---- context menu extras ---- */
 
 .context-menu-separator {
@@ -445,6 +456,127 @@
   font-size: 0.72rem;
   opacity: 0.55;
   line-height: 1.5;
+}
+
+/* ---- draft editor (add-sound, name-at-the-end) ---- */
+
+.admin-explainer {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.8;
+  line-height: 1.5;
+}
+
+.draft-banner {
+  margin-bottom: var(--standard-padding);
+  padding: calc(var(--standard-padding) * 0.5) calc(var(--standard-padding) * 0.75);
+  border: 1px solid var(--primary-color);
+  border-radius: var(--corner-rounding);
+  background-color: rgba(66, 65, 179, 0.18);
+  font-size: 0.85rem;
+}
+
+.draft-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: calc(var(--standard-padding) * 0.5);
+}
+
+.draft-name-field {
+  width: 100%;
+}
+
+.draft-name-hint {
+  min-height: 1.1em;
+}
+
+.draft-actions {
+  margin-top: 0;
+}
+
+/* ---- video popover ---- */
+
+.video-popover-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 350;
+  background: transparent;
+}
+
+.video-popover-scrim-dim {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.video-popover {
+  position: fixed;
+  z-index: 351;
+  width: min(480px, 90vw);
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--corner-rounding);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.video-popover-centered {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.video-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+  padding: calc(var(--standard-padding) * 0.5) calc(var(--standard-padding) * 0.75);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.video-popover-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-popover-close {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.25em;
+}
+
+.video-popover-stage {
+  position: relative;
+  min-height: 4rem;
+  background-color: black;
+}
+
+.video-popover-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+.video-popover-video {
+  display: block;
+  width: 100%;
+  max-height: min(70vh, 480px);
+  opacity: 0;
+}
+
+.video-popover.video-ready .video-popover-video {
+  opacity: 1;
 }
 
 .admin-modal.busy {

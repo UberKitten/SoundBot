@@ -50,6 +50,22 @@ export interface PatchSoundRequest {
   volume_adjust?: number;
 }
 
+export interface DraftInfo {
+  draft_id: string;
+  duration: number;
+  source_title: string | null;
+  source_url: string | null;
+  has_video: boolean;
+  audio_url: string;
+}
+
+export interface CommitDraftRequest {
+  name: string;
+  start: number | null;
+  end: number | null;
+  volume_adjust: number;
+}
+
 /** An error carrying the server's HTTP status and a human-readable message. */
 export class ApiError extends Error {
   status: number;
@@ -204,4 +220,41 @@ export async function redownloadSound(name: string): Promise<void> {
     jsonInit("POST"),
     asVoid
   );
+}
+
+/* ---- Admin: drafts (download first, name + commit later) ---- */
+
+export async function createDraft(url: string): Promise<DraftInfo> {
+  return request<DraftInfo>(
+    `${ADMIN_BASE}/drafts`,
+    jsonInit("POST", { url }),
+    asJson
+  );
+}
+
+export async function commitDraft(
+  draftId: string,
+  req: CommitDraftRequest
+): Promise<{ name: string }> {
+  return request<{ name: string }>(
+    `${ADMIN_BASE}/drafts/${encodeURIComponent(draftId)}/commit`,
+    jsonInit("POST", req),
+    asJson
+  );
+}
+
+/** Best-effort draft cleanup — fire-and-forget on cancel. */
+export function discardDraft(draftId: string): void {
+  fetch(`${ADMIN_BASE}/drafts/${encodeURIComponent(draftId)}`, {
+    method: "DELETE",
+    credentials: "same-origin",
+    keepalive: true,
+  }).catch(() => {
+    /* fire-and-forget */
+  });
+}
+
+/** URL for the admin-only trimmed-clip video (auth via same-origin cookie). */
+export function soundVideoUrl(name: string): string {
+  return `${ADMIN_BASE}/sounds/${encodeURIComponent(name)}/video`;
 }
