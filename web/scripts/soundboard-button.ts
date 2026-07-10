@@ -9,7 +9,8 @@ import {
   stopMainAudio,
 } from "audio";
 import { copy } from "clipboard";
-import { showContextMenu } from "context-menu";
+import { showContextMenu, showContextMenuAt } from "context-menu";
+import { attachLongPress } from "long-press";
 import { getDisplayDate, scheduleBackgroundTask } from "utils";
 
 export class SoundboardButton extends HTMLElement {
@@ -19,6 +20,7 @@ export class SoundboardButton extends HTMLElement {
   displayDate: string = "";
   audioChangeListener: () => void;
   progressAnimationId: number | null = null;
+  longPressAttached = false;
 
   constructor() {
     super();
@@ -49,6 +51,17 @@ export class SoundboardButton extends HTMLElement {
 
     this.updateLabel();
     this.updateIndicators();
+
+    // Touch long-press opens the same menu (iOS never fires contextmenu for a
+    // long-press). Registered BEFORE the contextmenu handler so its Android
+    // double-fire suppression listener runs first at the target phase.
+    if (!this.longPressAttached) {
+      this.longPressAttached = true;
+      attachLongPress(this, (x, y) => {
+        if (!this.sound) return;
+        showContextMenuAt(x, y, this.sound);
+      });
+    }
 
     this.oncontextmenu = (e) => {
       if (!this.sound) return;

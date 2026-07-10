@@ -45,6 +45,11 @@ document.addEventListener("keydown", (e) => {
 
 export function showContextMenu(e: MouseEvent, sound: Sound) {
   e.preventDefault();
+  showContextMenuAt(e.clientX, e.clientY, sound);
+}
+
+/** Open the sound menu at viewport coordinates (mouse or touch long-press). */
+export function showContextMenuAt(x: number, y: number, sound: Sound) {
   closeMenu();
 
   const menu = document.createElement("div");
@@ -58,7 +63,7 @@ export function showContextMenu(e: MouseEvent, sound: Sound) {
   ];
 
   // Append admin-only actions (empty for non-admins).
-  const adminItems = getAdminMenuItems(sound.name);
+  const adminItems = getAdminMenuItems(sound, { x, y });
   if (adminItems.length > 0) {
     items.push({ label: "", action: () => {}, separator: true });
     for (const adminItem of adminItems) items.push(adminItem);
@@ -69,7 +74,7 @@ export function showContextMenu(e: MouseEvent, sound: Sound) {
   document.body.appendChild(menu);
   activeMenu = menu;
 
-  positionMenu(menu, e);
+  positionMenu(menu, x, y);
 }
 
 function renderMenuItems(menu: HTMLElement, items: MenuItem[]) {
@@ -93,11 +98,12 @@ function renderMenuItems(menu: HTMLElement, items: MenuItem[]) {
   }
 }
 
-function positionMenu(menu: HTMLElement, e: MouseEvent) {
-  // Position menu, keeping it within viewport
+function positionMenu(menu: HTMLElement, atX: number, atY: number) {
+  // Position menu, keeping it within viewport (clamped both ways so it stays
+  // on-screen even at touch points near edges of small screens).
   const rect = menu.getBoundingClientRect();
-  let x = e.clientX;
-  let y = e.clientY;
+  let x = atX;
+  let y = atY;
 
   if (x + rect.width > window.innerWidth) {
     x = window.innerWidth - rect.width - 4;
@@ -105,6 +111,8 @@ function positionMenu(menu: HTMLElement, e: MouseEvent) {
   if (y + rect.height > window.innerHeight) {
     y = window.innerHeight - rect.height - 4;
   }
+  x = Math.max(4, x);
+  y = Math.max(4, y);
 
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
@@ -112,6 +120,11 @@ function positionMenu(menu: HTMLElement, e: MouseEvent) {
 
 export function showGroupContextMenu(e: MouseEvent, group: SoundGroup) {
   e.preventDefault();
+  showGroupContextMenuAt(e.clientX, e.clientY, group);
+}
+
+/** Open the group menu at viewport coordinates (mouse or touch long-press). */
+export function showGroupContextMenuAt(x: number, y: number, group: SoundGroup) {
   closeMenu();
 
   const menu = document.createElement("div");
@@ -128,7 +141,7 @@ export function showGroupContextMenu(e: MouseEvent, group: SoundGroup) {
   document.body.appendChild(menu);
   activeMenu = menu;
 
-  positionMenu(menu, e);
+  positionMenu(menu, x, y);
 }
 
 function copyGroupCommand(group: SoundGroup) {
