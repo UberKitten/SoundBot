@@ -12,7 +12,7 @@ import { copy } from "clipboard";
 import { showContextMenu, showContextMenuAt } from "context-menu";
 import { attachLongPress } from "long-press";
 import { getDisplayDate, scheduleBackgroundTask } from "utils";
-import { notifySoundPlayed } from "video-popover";
+import { notifySoundPlayed, videoPlayerHandlesClick } from "video-popover";
 
 export class SoundboardButton extends HTMLElement {
   sound?: Sound;
@@ -78,15 +78,16 @@ export class SoundboardButton extends HTMLElement {
         return;
       }
 
-      if (this.singlePlay) {
+      if (videoPlayerHandlesClick(this.sound)) {
+        // Mini video player open + this sound has video: the video IS the
+        // playback (its audio plays once, when loaded). Playing board audio
+        // too caused a double-play — instant ogg, then the video again.
+        notifySoundPlayed(this.sound);
+      } else if (this.singlePlay) {
         playMainAudio(this.sound);
       } else {
         playButtonAudio(this.sound, this.audioChangeListener);
       }
-
-      // If the mini video player is open (admin), retarget it to this sound
-      // too — purely additive, the click above already played the sound.
-      notifySoundPlayed(this.sound);
 
       this.updateIndicators();
 

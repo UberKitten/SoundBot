@@ -73,9 +73,18 @@ export function openVideoPopover(name: string): void {
 }
 
 /**
- * Called from the sound-button click path. When the player is open, the user
- * is an admin, and the clicked sound has a video, retarget the player to it.
- * Never interferes with the click itself (the sound already played).
+ * True when a sound-button click should be handled by the video player
+ * INSTEAD of board audio (player open + admin + sound has video). Playing
+ * both caused a double-play: the ogg fired instantly, then the video's audio
+ * arrived seconds later and played the sound again.
+ */
+export function videoPlayerHandlesClick(sound: Sound): boolean {
+  return player !== null && sound.has_video && isAdmin();
+}
+
+/**
+ * Called from the sound-button click path when videoPlayerHandlesClick() is
+ * true: retarget the player to this sound (it plays once, when loaded).
  */
 export function notifySoundPlayed(sound: Sound): void {
   if (!player || !sound.has_video || !isAdmin()) return;
