@@ -62,6 +62,17 @@ export function showContextMenuAt(x: number, y: number, sound: Sound) {
     { label: "Properties", action: () => showProperties(sound) },
   ];
 
+  // Public: jump to the original video/audio the sound was clipped from.
+  const sourceUrl = sound.source_url;
+  if (sourceUrl) {
+    items.splice(2, 0, {
+      label: "Open Source",
+      action: () => {
+        window.open(sourceUrl, "_blank", "noopener,noreferrer");
+      },
+    });
+  }
+
   // Append admin-only actions (empty for non-admins).
   const adminItems = getAdminMenuItems(sound);
   if (adminItems.length > 0) {
