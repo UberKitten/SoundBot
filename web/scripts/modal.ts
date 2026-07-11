@@ -50,7 +50,12 @@ export function openModal(options: ModalOptions): ModalController {
 
   const modal = document.createElement("div");
   modal.className = "modal admin-modal";
-  if (options.className) modal.classList.add(options.className);
+  // className may be multiple space-separated classes (e.g. the draft editor's
+  // "trim-editor draft-editor") — classList.add throws on tokens containing
+  // spaces, which nuked the whole add-sound flow after download. Split first.
+  if (options.className) {
+    modal.classList.add(...options.className.split(/\s+/).filter(Boolean));
+  }
   modal.setAttribute("role", "dialog");
   modal.setAttribute("aria-modal", "true");
 
