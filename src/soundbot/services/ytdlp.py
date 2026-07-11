@@ -142,6 +142,20 @@ class DownloadResult(BaseModel):
     duration: Optional[float] = None
     timings: list[StepTiming] = []
 
+    @property
+    def canonical_url(self) -> Optional[str]:
+        """yt-dlp's canonical webpage URL for the media, when known.
+
+        Prefer this over the user-supplied URL when storing source_url —
+        it strips share/tracking params (youtu.be/x?si=... becomes
+        youtube.com/watch?v=x) and normalizes the host.
+        """
+        if self.metadata:
+            url = self.metadata.get("webpage_url")
+            if isinstance(url, str) and url:
+                return url
+        return None
+
     def timing_summary(self) -> str:
         """Get a formatted summary of timings."""
         if not self.timings:

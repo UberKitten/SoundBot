@@ -350,7 +350,7 @@ class SoundService:
                 if download_result.subtitles_file
                 else None,
             ),
-            source_url=url,
+            source_url=download_result.canonical_url or url,
             source_title=download_result.title,
             source_duration=download_result.duration,
             timestamps=Timestamps(start=start, end=end),

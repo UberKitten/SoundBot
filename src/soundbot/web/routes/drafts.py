@@ -154,7 +154,8 @@ async def create_draft(body: CreateDraftBody):
             )
 
         info = DraftInfo(
-            url=body.url,
+            # Prefer yt-dlp's canonical URL (strips ?si= share/tracking params).
+            url=download.canonical_url or body.url,
             title=download.title,
             duration=duration,
             created=datetime.now(),
@@ -171,7 +172,7 @@ async def create_draft(body: CreateDraftBody):
         "draft_id": draft_id,
         "duration": duration,
         "source_title": download.title,
-        "source_url": body.url,
+        "source_url": info.url,
         "has_video": probe.has_video,
         "audio_url": f"/api/admin/drafts/{draft_id}/waveform-audio",
     }
