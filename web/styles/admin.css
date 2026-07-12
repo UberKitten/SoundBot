@@ -360,28 +360,44 @@ soundboard-button,
   z-index: 2;
 }
 
-/* Region resize handles: widen the 6px/2px-line defaults into a real grab
- * target (also the fix for a region starting at 0 — the handle extends
- * inward, so there is something to grip at the container's left edge). */
+/* Region resize handles: keep the 12px HIT AREA (the fix for a region
+ * starting at 0 — the handle extends inward, so there's something to grip
+ * at the container's edge) but render only a slim [ ] bracket so short
+ * sounds' waveforms aren't obscured. ::before/::after aren't allowed on
+ * ::part(), so the bracket is drawn with layered background gradients:
+ * a 3px vertical bar at the outer edge + 3px ticks top and bottom. */
 .trim-waveform ::part(region-handle) {
   width: 12px !important;
   border: none !important;
-  background-color: rgba(255, 255, 255, 0.35);
+  background-color: transparent;
+  background-repeat: no-repeat;
   z-index: 4 !important;
   touch-action: none;
+  --handle-ink: rgba(255, 255, 255, 0.55);
 }
 
 .trim-waveform ::part(region-handle):hover,
 .trim-waveform ::part(region-handle):active {
-  background-color: rgba(255, 255, 255, 0.6);
+  --handle-ink: rgba(255, 255, 255, 0.95);
 }
 
-/* Round the outer corners to match the region's 2px radius. */
 .trim-waveform ::part(region-handle-left) {
+  background-image:
+    linear-gradient(var(--handle-ink), var(--handle-ink)),
+    linear-gradient(var(--handle-ink), var(--handle-ink)),
+    linear-gradient(var(--handle-ink), var(--handle-ink));
+  background-position: left center, left top, left bottom;
+  background-size: 3px 100%, 9px 3px, 9px 3px;
   border-radius: 2px 0 0 2px;
 }
 
 .trim-waveform ::part(region-handle-right) {
+  background-image:
+    linear-gradient(var(--handle-ink), var(--handle-ink)),
+    linear-gradient(var(--handle-ink), var(--handle-ink)),
+    linear-gradient(var(--handle-ink), var(--handle-ink));
+  background-position: right center, right top, right bottom;
+  background-size: 3px 100%, 9px 3px, 9px 3px;
   border-radius: 0 2px 2px 0;
 }
 
