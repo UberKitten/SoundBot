@@ -19,6 +19,10 @@ const EDGE_PREVIEW_SECONDS = 1.5;
 export const MIN_REGION_LENGTH = 0.05;
 const VOLUME_MIN = -5;
 const VOLUME_MAX = 3;
+/** Pointer travel below this (px) between down/up counts as a click, not a drag. */
+const CLICK_MOVE_TOLERANCE = 5;
+/** Playhead within this many seconds of the region end → play the full region. */
+const PLAYHEAD_END_EPSILON = 0.05;
 
 /** Audio + trim metadata the editor operates on (WaveformInfo-compatible). */
 export interface EditorInfo {
@@ -94,6 +98,14 @@ function fmt(seconds: number): string {
   return seconds.toFixed(2);
 }
 
+/** m:ss.t clock format (tenths truncated so 59.99 → 0:59.9, not 1:00.0). */
+function fmtClock(seconds: number): string {
+  const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  const m = Math.floor(safe / 60);
+  const tenths = Math.floor((safe - m * 60) * 10) / 10;
+  return `${m}:${tenths < 10 ? "0" : ""}${tenths.toFixed(1)}`;
+}
+
 function svgIcon(paths: string): string {
   return `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 }
@@ -120,6 +132,9 @@ export function openWaveformEditor(
   let syncing = false;
   // When set, playback auto-stops once currentTime passes this point.
   let playStopAt: number | null = null;
+  // True once the regions plugin reports a drag/resize during the current
+  // pointer press — used to tell region drags apart from plain clicks.
+  let regionMovedDuringPointer = false;
 
   const state: EditorState = {
     duration: 0,
@@ -214,6 +229,26 @@ export function openWaveformEditor(
   let endInput: HTMLInputElement | null = null;
   let playBtn: HTMLButtonElement | null = null;
   let loopBtn: HTMLButtonElement | null = null;
+  let playheadReadout: HTMLSpanElement | null = null;
+  let regionReadout: HTMLSpanElement | null = null;
+
+  /** mm:ss.t for sources ≥60s, plain seconds below (matches the hover tip). */
+  function fmtReadout(seconds: number): string {
+    if (state.duration >= 60) return fmtClock(seconds);
+    return `${Math.max(0, seconds).toFixed(2)}s`;
+  }
+
+  function updatePlayheadReadout(t: number): void {
+    if (playheadReadout) playheadReadout.textContent = `⏱ ${fmtReadout(t)}`;
+  }
+
+  function updateRegionReadout(): void {
+    if (!regionReadout) return;
+    const len = Math.max(0, state.end - state.start);
+    const text =
+      len >= 60 ? fmtClock(len) : `${Math.round(len * 100) / 100}s`;
+    regionReadout.textContent = `region ${text}`;
+  }
 
   function destroyWavesurfer(): void {
     if (wavesurfer) {
@@ -243,6 +278,7 @@ export function openWaveformEditor(
   function syncInputs(): void {
     if (startInput) startInput.value = fmt(state.start);
     if (endInput) endInput.value = fmt(state.end);
+    updateRegionReadout();
   }
 
   function setRegionBounds(start: number, end: number): void {
@@ -282,7 +318,14 @@ export function openWaveformEditor(
       stopPlayback();
       return;
     }
-    playRange(state.start, state.end);
+    // If the playhead sits inside the region (and not right at its end),
+    // audition from there to the region end; otherwise play the full region.
+    const t = wavesurfer.getCurrentTime();
+    if (t >= state.start && t < state.end - PLAYHEAD_END_EPSILON) {
+      playRange(t, state.end);
+    } else {
+      playRange(state.start, state.end);
+    }
   }
 
   function playRange(from: number, to: number): void {
@@ -332,6 +375,7 @@ export function openWaveformEditor(
   }
 
   function onTimeupdate(currentTime: number): void {
+    updatePlayheadReadout(currentTime);
     if (playStopAt === null) return;
     if (currentTime >= playStopAt) {
       if (loop) {
@@ -377,6 +421,123 @@ export function openWaveformEditor(
     waveContainer.className = "trim-waveform";
     modal.body.appendChild(waveContainer);
 
+    // ---- click-to-seek + hover time tooltip ------------------------------
+    //
+    // The regions plugin's drag helper stopPropagation()s pointerdown on the
+    // region element (and the trim region spans the full source by default),
+    // so wavesurfer's own click→seek never sees interactions there. We listen
+    // on the waveform container in the CAPTURE phase — ancestors' capture
+    // listeners run before the region's target-phase stopPropagation — and
+    // seek on plain clicks ourselves.
+    //
+    // Pointer state machine:
+    //   pointerdown  → remember pointer id + position, clear "region moved"
+    //   region-update (plugin) → flag "region moved" (body drag OR handle
+    //                  resize; the plugin only emits this from real pointer
+    //                  drags — programmatic setOptions never emits it)
+    //   pointerup    → same pointer, moved < CLICK_MOVE_TOLERANCE px, and no
+    //                  region-update in between ⇒ it was a click ⇒ setTime()
+    //   pointercancel / pointermove with no buttons ⇒ reset stale state
+    //
+    // x→time uses the wrapper's bounding rect: the wrapper is the full-width
+    // waveform element (wavesurfer sets its width to duration·pxPerSec under
+    // zoom), so rect.left already accounts for horizontal scroll and
+    // (clientX − rect.left) / rect.width is the fraction of the duration —
+    // the exact math wavesurfer's own renderer click handler uses.
+
+    /**
+     * Time under a viewport point, or null before the waveform is ready or
+     * when the point is vertically outside the waveform (e.g. the horizontal
+     * scrollbar under a zoomed waveform — seeking from there would be wrong).
+     */
+    function timeAtClientPoint(clientX: number, clientY: number): number | null {
+      if (!wavesurfer || state.duration <= 0) return null;
+      const rect = wavesurfer.getWrapper().getBoundingClientRect();
+      if (rect.width <= 0) return null;
+      if (clientY < rect.top || clientY > rect.bottom) return null;
+      const frac = clamp((clientX - rect.left) / rect.width, 0, 1);
+      return frac * state.duration;
+    }
+
+    let pointerDown: { id: number; x: number; y: number } | null = null;
+    regionMovedDuringPointer = false;
+
+    const tooltip = document.createElement("div");
+    tooltip.className = "trim-hover-time";
+    tooltip.hidden = true;
+    waveContainer.appendChild(tooltip);
+
+    function hideTooltip(): void {
+      tooltip.hidden = true;
+    }
+
+    waveContainer.addEventListener(
+      "pointerdown",
+      (e: PointerEvent) => {
+        if (e.button !== 0) return; // primary button / touch only
+        pointerDown = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        regionMovedDuringPointer = false;
+        hideTooltip();
+      },
+      true
+    );
+
+    waveContainer.addEventListener(
+      "pointerup",
+      (e: PointerEvent) => {
+        const down = pointerDown;
+        pointerDown = null;
+        if (!down || down.id !== e.pointerId) return;
+        if (regionMovedDuringPointer) return;
+        const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+        if (moved >= CLICK_MOVE_TOLERANCE) return;
+        const t = timeAtClientPoint(e.clientX, e.clientY);
+        if (t === null) return;
+        // setTime also emits "timeupdate", which refreshes the readout.
+        wavesurfer?.setTime(t);
+      },
+      true
+    );
+
+    waveContainer.addEventListener(
+      "pointercancel",
+      () => {
+        pointerDown = null;
+      },
+      true
+    );
+
+    // Hover tooltip: mouse only (no hover on touch), hidden while a pointer
+    // is down (dragging a region edge/body), rAF-throttled.
+    let hoverX = 0;
+    let hoverY = 0;
+    let tooltipRaf = 0;
+    waveContainer.addEventListener("pointermove", (e: PointerEvent) => {
+      // A pointerup outside the container leaves stale down-state; a
+      // buttonless move means that press ended elsewhere.
+      if (pointerDown && e.buttons === 0) pointerDown = null;
+      if (e.pointerType !== "mouse" || pointerDown) return;
+      hoverX = e.clientX;
+      hoverY = e.clientY;
+      if (tooltipRaf) return;
+      tooltipRaf = requestAnimationFrame(() => {
+        tooltipRaf = 0;
+        if (destroyed) return;
+        const t = timeAtClientPoint(hoverX, hoverY);
+        if (t === null) {
+          hideTooltip();
+          return;
+        }
+        const rect = waveContainer.getBoundingClientRect();
+        // Keep the (centered) label inside the container at the edges.
+        const x = clamp(hoverX - rect.left, 28, Math.max(28, rect.width - 28));
+        tooltip.textContent = fmtReadout(t);
+        tooltip.style.left = `${x}px`;
+        tooltip.hidden = false;
+      });
+    });
+    waveContainer.addEventListener("pointerleave", hideTooltip);
+
     // -- primary transport row --
     const transport = document.createElement("div");
     transport.className = "trim-transport";
@@ -384,7 +545,8 @@ export function openWaveformEditor(
     playBtn = document.createElement("button");
     playBtn.type = "button";
     playBtn.className = "trim-btn trim-btn-primary";
-    playBtn.title = "Play region (Space)";
+    playBtn.title =
+      "Play region (Space) — starts from the playhead when it's inside the region";
     playBtn.addEventListener("click", togglePlayRegion);
 
     const startEdgeBtn = document.createElement("button");
@@ -413,6 +575,20 @@ export function openWaveformEditor(
     transport.appendChild(startEdgeBtn);
     transport.appendChild(endEdgeBtn);
     transport.appendChild(loopBtn);
+
+    // -- playhead position + region length readouts --
+    const readouts = document.createElement("div");
+    readouts.className = "trim-readouts";
+    playheadReadout = document.createElement("span");
+    playheadReadout.className = "trim-readout";
+    playheadReadout.title = "Playhead position (click the waveform to move it)";
+    regionReadout = document.createElement("span");
+    regionReadout.className = "trim-readout";
+    regionReadout.title = "Region length";
+    readouts.appendChild(playheadReadout);
+    readouts.appendChild(regionReadout);
+    transport.appendChild(readouts);
+
     modal.body.appendChild(transport);
     updatePlayButton();
 
@@ -541,7 +717,8 @@ export function openWaveformEditor(
     const hint = document.createElement("div");
     hint.className = "trim-hint";
     hint.textContent =
-      "Space play/pause · s / e check edges · l loop · , . nudge nearest edge";
+      "Click waveform to move playhead · Space play/pause (from playhead when inside region) · " +
+      "s / e check edges · l loop · , . nudge nearest edge";
     modal.body.appendChild(hint);
 
     // ---- create WaveSurfer ----
@@ -604,8 +781,12 @@ export function openWaveformEditor(
       });
       region = created ?? null;
       syncInputs();
+      updatePlayheadReadout(ws.getCurrentTime());
 
       regions?.on("region-update", () => {
+        // Only real pointer drags emit this (programmatic setOptions doesn't),
+        // so it doubles as the click-vs-drag discriminator for click-to-seek.
+        regionMovedDuringPointer = true;
         if (syncing) return;
         applyRegionToState();
       });

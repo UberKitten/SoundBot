@@ -67,6 +67,12 @@ declare module "wavesurfer" {
     setTime(seconds: number): void;
     getCurrentTime(): number;
     getDuration(): number;
+    /**
+     * The full-width waveform element inside the scroll container (shadow DOM
+     * `part="wrapper"`). Its bounding rect spans the entire rendered waveform
+     * regardless of zoom/scroll, so x→time is (clientX - rect.left) / rect.width.
+     */
+    getWrapper(): HTMLElement;
     setVolume(volume: number): void;
     getVolume(): number;
     zoom(minPxPerSec: number): void;
