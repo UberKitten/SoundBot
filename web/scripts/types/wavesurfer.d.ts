@@ -73,6 +73,12 @@ declare module "wavesurfer" {
      * regardless of zoom/scroll, so x→time is (clientX - rect.left) / rect.width.
      */
     getWrapper(): HTMLElement;
+    /**
+     * With backend "WebAudio" this returns the plugin's WebAudioPlayer shim
+     * (audio-element-shaped, carries its own `audioContext`), not a real
+     * HTMLMediaElement. Used for the iOS suspended-context unlock.
+     */
+    getMediaElement(): HTMLMediaElement;
     setVolume(volume: number): void;
     getVolume(): number;
     zoom(minPxPerSec: number): void;

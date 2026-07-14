@@ -334,10 +334,31 @@ export function openWaveformEditor(
     const end = clamp(to, start + 0.001, state.duration);
     playStopAt = end;
     wavesurfer.setTime(start);
+    resumeAudioContext();
     wavesurfer.play().catch(() => {
       /* autoplay guards — ignore */
     });
     updatePlayButton();
+  }
+
+  /**
+   * iOS unlock for the WebAudio backend: wavesurfer's WebAudio player creates
+   * its own AudioContext at construction (outside any user gesture) and the
+   * vendored build NEVER calls resume() — on iOS that context starts
+   * "suspended" and plays pure silence (no error, so play() resolves fine).
+   * Unlocking the soundboard's separate context doesn't help; each context
+   * must be resumed within a gesture. playRange only ever runs from taps/
+   * keydowns, so resuming here is always gesture-blessed.
+   */
+  function resumeAudioContext(): void {
+    if (!wavesurfer) return;
+    const media = wavesurfer.getMediaElement() as unknown as {
+      audioContext?: AudioContext;
+    };
+    const ctx = media.audioContext;
+    if (ctx && ctx.state === "suspended") {
+      void ctx.resume();
+    }
   }
 
   function playEdge(edge: "start" | "end"): void {
