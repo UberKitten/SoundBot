@@ -8,6 +8,7 @@ message would suppress the unfurl) followed by an info card embed.
 import logging
 from datetime import datetime
 from typing import Awaitable, Optional, Protocol
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import discord
 
@@ -55,6 +56,37 @@ def _trimmed_duration_text(sound: Sound) -> Optional[str]:
     return _format_duration(trimmed)
 
 
+_YOUTUBE_HOSTS = {
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+    "music.youtube.com",
+    "youtu.be",
+}
+
+
+def timestamped_source_url(sound: Sound) -> Optional[str]:
+    """The sound's source URL, deep-linked to the trim start when possible.
+
+    Currently YouTube-only (t=<seconds>); other hosts return the URL as-is.
+    """
+    url = sound.source_url
+    if not url:
+        return None
+    start = sound.timestamps.start
+    if not start or start < 1:
+        return url
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        return url
+    if parts.netloc.lower() not in _YOUTUBE_HOSTS:
+        return url
+    query = [(k, v) for k, v in parse_qsl(parts.query) if k != "t"]
+    query.append(("t", f"{int(start)}s"))
+    return urlunparse(parts._replace(query=urlencode(query)))
+
+
 def build_play_card(name: str, sound: Sound) -> discord.Embed:
     """Lean info card posted alongside a play — Sound fields only, no file I/O."""
     embed = discord.Embed(title=f"🔊 {name}", color=discord.Color.blue())
@@ -84,8 +116,9 @@ def build_info_card(
     md: dict[str, object] = metadata or {}
 
     embed = discord.Embed(title=f"🔊 {name}", color=discord.Color.blue())
-    if sound.source_url:
-        embed.url = sound.source_url
+    source_url = timestamped_source_url(sound)
+    if source_url:
+        embed.url = source_url
 
     thumbnail = md.get("thumbnail")
     if isinstance(thumbnail, str) and thumbnail.startswith("http"):
@@ -93,8 +126,8 @@ def build_info_card(
 
     if sound.source_title:
         _ = embed.add_field(name="Title", value=sound.source_title, inline=False)
-    if sound.source_url:
-        _ = embed.add_field(name="Source", value=sound.source_url, inline=False)
+    if source_url:
+        _ = embed.add_field(name="Source", value=source_url, inline=False)
 
     # Channel/uploader, linked when a URL is available
     channel = md.get("channel") or md.get("uploader")
@@ -185,8 +218,9 @@ async def post_clip_and_card(
     else:
         line = f"{emoji} **{name}**"
 
-    if sound.source_url:
+    source_url = timestamped_source_url(sound)
+    if source_url:
         source_label = sound.source_title or "source"
-        line += f" 🔗 [{source_label}](<{sound.source_url}>)"
+        line += f" 🔗 [{source_label}](<{source_url}>)"
 
     _ = await send(line)
