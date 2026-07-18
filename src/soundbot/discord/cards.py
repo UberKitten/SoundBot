@@ -152,12 +152,18 @@ async def post_clip_and_card(
     name: str,
     sound: Sound,
     *,
-    status_text: Optional[str] = None,
+    emoji: str = "🎵",
 ) -> None:
-    """Post a sound's clip (own message, auto-embedded) then its info card.
+    """Post one compact line for a played sound:
 
-    Clip posting is best-effort: no video, unset SESSION_SECRET, or a
-    transcode failure all fall through to posting the card alone.
+        🎵 [name](clip url) 🔗 [Source Title](<source url>)
+
+    The masked clip link still unfurls into the inline video player
+    (bot-only behavior); the source link is wrapped in <> to suppress
+    its unfurl. No embed — an embed would suppress the clip unfurl.
+
+    Clip linking is best-effort: no video, unset SESSION_SECRET, or a
+    transcode failure fall back to a plain bold name.
     """
     # Import here (like /clip does) to keep the web helpers out of the
     # discord module import graph at import time.
@@ -175,14 +181,12 @@ async def post_clip_and_card(
             logger.error(f"Play-clip generation failed for '{name}': {e}")
 
     if clip_available:
-        # A direct .mp4 link as message content is what makes Discord render
-        # the native inline video player — no embed on this message. Masked
-        # markdown links (bot-only) still unfurl, so the long signed URL
-        # hides behind a short label.
-        _ = await send(f"[▶ {name}]({build_clip_share_url(name)})")
-
-    card = build_play_card(name, sound)
-    if status_text is not None:
-        _ = await send(status_text, embed=card)
+        line = f"{emoji} [{name}]({build_clip_share_url(name)})"
     else:
-        _ = await send(embed=card)
+        line = f"{emoji} **{name}**"
+
+    if sound.source_url:
+        source_label = sound.source_title or "source"
+        line += f" 🔗 [{source_label}](<{sound.source_url}>)"
+
+    _ = await send(line)

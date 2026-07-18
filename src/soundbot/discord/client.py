@@ -584,9 +584,19 @@ class SoundCommands(commands.Cog):
         """Add an alias for a sound."""
         sound = strip_command_prefix(sound)
         alias = strip_command_prefix(alias)
-        result = sound_service.add_alias(sound, alias)
+
+        # Strict resolution on the target sound — no fuzzy auto-pick.
+        resolved = _resolve_strict(sound)
+        if isinstance(resolved, str):
+            _ = await interaction.response.send_message(resolved, ephemeral=True)
+            return
+        canonical_name, _sound = resolved
+
+        result = sound_service.add_alias(canonical_name, alias)
         emoji = "✅" if result.success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+        _ = await interaction.response.send_message(
+            f"{emoji} {result.message}", ephemeral=not result.success
+        )
 
     @alias_group.command(name="remove")
     @app_commands.describe(sound="Name of the sound", alias="Alias to remove")
@@ -594,9 +604,19 @@ class SoundCommands(commands.Cog):
         """Remove an alias from a sound."""
         sound = strip_command_prefix(sound)
         alias = strip_command_prefix(alias)
-        result = sound_service.remove_alias(sound, alias)
+
+        # Strict resolution on the target sound — no fuzzy auto-pick.
+        resolved = _resolve_strict(sound)
+        if isinstance(resolved, str):
+            _ = await interaction.response.send_message(resolved, ephemeral=True)
+            return
+        canonical_name, _sound = resolved
+
+        result = sound_service.remove_alias(canonical_name, alias)
         emoji = "✅" if result.success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+        _ = await interaction.response.send_message(
+            f"{emoji} {result.message}", ephemeral=not result.success
+        )
 
     @alias_group.command(name="list")
     @app_commands.describe(sound="Name of the sound")
@@ -839,7 +859,7 @@ class SoundCommands(commands.Cog):
             sound.discord.last_played = datetime.now()
             _ = state.save()
             await post_clip_and_card(
-                interaction.followup.send, name, sound, status_text=f"🎲 {message}"
+                interaction.followup.send, name, sound, emoji="🎲"
             )
         else:
             _ = await interaction.followup.send(f"🎲 {message}")
@@ -895,7 +915,7 @@ class SoundCommands(commands.Cog):
             sound.discord.last_played = datetime.now()
             _ = state.save()
             await post_clip_and_card(
-                interaction.followup.send, name, sound, status_text=f"🔊 {message}"
+                interaction.followup.send, name, sound, emoji="🔊"
             )
         else:
             _ = await interaction.followup.send(f"🔊 {message}")
@@ -1069,7 +1089,7 @@ class QueueCog(commands.Cog):
             sound.discord.last_played = datetime.now()
             _ = state.save()
             await post_clip_and_card(
-                interaction.followup.send, name, sound, status_text=f"⏭️ {message}"
+                interaction.followup.send, name, sound, emoji="⏭️"
             )
         else:
             _ = await interaction.followup.send(f"⏭️ {message}")
@@ -1125,7 +1145,7 @@ class QueueCog(commands.Cog):
             sound.discord.last_played = datetime.now()
             _ = state.save()
             await post_clip_and_card(
-                interaction.followup.send, name, sound, status_text=f"🎵 {message}"
+                interaction.followup.send, name, sound, emoji="🎵"
             )
         else:
             _ = await interaction.followup.send(f"🎵 {message}")
@@ -1247,7 +1267,7 @@ class QueueCog(commands.Cog):
             sound.discord.last_played = datetime.now()
             _ = state.save()
             await post_clip_and_card(
-                interaction.followup.send, name, sound, status_text=f"🔁 {message}"
+                interaction.followup.send, name, sound, emoji="🔁"
             )
         else:
             _ = await interaction.followup.send(f"🔁 {message}")
