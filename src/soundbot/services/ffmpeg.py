@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import tempfile
 import time
 from pathlib import Path
 from typing import Optional
@@ -396,70 +397,115 @@ class FFmpegService:
         played = "0xff5500|0xff7733"  # SoundCloud orange (L|R channels)
         unplayed = "0x555a63|0x6a707a"  # muted gray
 
-        filter_complex = (
-            # Two static frames from the same audio: gray then orange
-            f"color=c={bg}:s={size}[bg1];"
-            f"color=c={bg}:s={size}[bg2];"
-            f"[0:a]showwavespic=s={size}:colors={unplayed}[uw];"
-            f"[0:a]showwavespic=s={size}:colors={played}[pw];"
-            f"[bg1][uw]overlay=format=auto,loop=-1:1,fps=30,"
-            f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[u];"
-            f"[bg2][pw]overlay=format=auto,loop=-1:1,fps=30,"
-            f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[p];"
-            # Static layers; only the reveal boundary moves
-            f"[u][p]xfade=transition=wiperight:duration={duration:.3f}:offset=0[v]"
-        )
-
-        args = [
-            "ffmpeg",
-            "-y",
-            "-i",
-            str(audio_file),
-            "-filter_complex",
-            filter_complex,
-            "-map",
-            "[v]",
-            "-map",
-            "0:a",
-            "-t",
-            f"{duration:.3f}",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "23",
-            "-pix_fmt",
-            "yuv420p",
-            "-profile:v",
-            "main",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-movflags",
-            "+faststart",
-            str(output_file),
-        ]
-
-        try:
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            start_time = time.monotonic()
-            logger.info(f"Making waveform video: {audio_file} -> {output_file}")
+        async def run(args: list[str]) -> Optional[str]:
+            """Run an ffmpeg command; return stderr text on failure."""
             proc = await asyncio.create_subprocess_exec(
                 *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             _, stderr = await proc.communicate()
-            elapsed = time.monotonic() - start_time
-
             if proc.returncode != 0:
-                error = stderr.decode() if stderr else "Unknown error"
-                logger.error(f"FFmpeg waveform failed: {error}")
-                return ProcessResult(
-                    success=False, error=error, duration_seconds=elapsed
+                return stderr.decode() if stderr else "Unknown error"
+            return None
+
+        def wavepic_args(colors: str, out: Path) -> list[str]:
+            return [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(audio_file),
+                "-filter_complex",
+                f"color=c={bg}:s={size}[bg];"
+                f"[0:a]showwavespic=s={size}:colors={colors}[w];"
+                f"[bg][w]overlay=format=auto",
+                "-frames:v",
+                "1",
+                str(out),
+            ]
+
+        try:
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            start_time = time.monotonic()
+            logger.info(f"Making waveform video: {audio_file} -> {output_file}")
+
+            # Three steps: two static PNGs, then the wipe between them.
+            # (A single filter graph can't do this — xfade requires CFR
+            # inputs, and loop-of-one-frame reports an invalid 1/0 rate.)
+            with tempfile.TemporaryDirectory(prefix="soundbot-wave-") as tmp:
+                unplayed_png = Path(tmp) / "unplayed.png"
+                played_png = Path(tmp) / "played.png"
+
+                for colors, png in (
+                    (unplayed, unplayed_png),
+                    (played, played_png),
+                ):
+                    error = await run(wavepic_args(colors, png))
+                    if error is not None:
+                        logger.error(f"FFmpeg waveform frame failed: {error}")
+                        return ProcessResult(
+                            success=False,
+                            error=error,
+                            duration_seconds=time.monotonic() - start_time,
+                        )
+
+                error = await run(
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-loop",
+                        "1",
+                        "-r",
+                        "30",
+                        "-t",
+                        f"{duration:.3f}",
+                        "-i",
+                        str(unplayed_png),
+                        "-loop",
+                        "1",
+                        "-r",
+                        "30",
+                        "-t",
+                        f"{duration:.3f}",
+                        "-i",
+                        str(played_png),
+                        "-i",
+                        str(audio_file),
+                        "-filter_complex",
+                        # Static layers; only the reveal boundary moves
+                        f"[0:v][1:v]xfade=transition=wiperight:"
+                        f"duration={duration:.3f}:offset=0[v]",
+                        "-map",
+                        "[v]",
+                        "-map",
+                        "2:a",
+                        "-t",
+                        f"{duration:.3f}",
+                        "-c:v",
+                        "libx264",
+                        "-preset",
+                        "veryfast",
+                        "-crf",
+                        "23",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-profile:v",
+                        "main",
+                        "-c:a",
+                        "aac",
+                        "-b:a",
+                        "128k",
+                        "-movflags",
+                        "+faststart",
+                        str(output_file),
+                    ]
                 )
+                elapsed = time.monotonic() - start_time
+                if error is not None:
+                    logger.error(f"FFmpeg waveform failed: {error}")
+                    return ProcessResult(
+                        success=False, error=error, duration_seconds=elapsed
+                    )
 
             return ProcessResult(
                 success=True, output_file=output_file, duration_seconds=elapsed
