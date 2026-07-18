@@ -1,5 +1,6 @@
 """Service for managing sounds - download, process, store, and retrieve."""
 
+import json
 import logging
 import random
 import re
@@ -156,6 +157,26 @@ class SoundService:
     def get_sound_dir(self, name: str) -> Path:
         """Get the directory for a specific sound."""
         return self.sounds_dir / sanitize_name(name)
+
+    def read_metadata(self, sound: Sound) -> Optional[dict[str, object]]:
+        """Read the sound's yt-dlp metadata.json.
+
+        Returns None for uploaded sounds (no metadata file), or when the
+        file is missing/corrupt. Small local file — sync read is fine,
+        consistent with the inline stat()/exists() style elsewhere.
+        """
+        if sound.files.metadata is None:
+            return None
+        path = self.sounds_dir / sound.directory / sound.files.metadata
+        try:
+            parsed = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning(f"Failed to read metadata for '{sound.directory}': {e}")
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        # JSON object keys are always str
+        return {str(k): v for k, v in parsed.items()}
 
     def resolve_sound_name(self, name: str) -> Optional[tuple[str, Sound]]:
         """Resolve a name (or alias) to a canonical sound name and Sound object."""

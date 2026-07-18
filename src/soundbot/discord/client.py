@@ -13,13 +13,29 @@ from discord.ext import commands
 from soundbot.core.settings import settings
 from soundbot.core.state import state
 from soundbot.core.utils import parse_timestamp
-from soundbot.models.sounds import RandomMode
+from soundbot.discord.cards import build_info_card, post_clip_and_card
+from soundbot.models.sounds import RandomMode, Sound
 from soundbot.services.ffmpeg import ffmpeg_service
 from soundbot.services.sounds import sound_service
 from soundbot.services.voice import voice_service
 from soundbot.services.ytdlp import ytdlp_service
 
 logger = logging.getLogger(__name__)
+
+# Upload validation for /add file uploads
+AUDIO_EXTENSIONS = {
+    ".mp3",
+    ".wav",
+    ".ogg",
+    ".m4a",
+    ".flac",
+    ".aac",
+    ".opus",
+    ".webm",
+    ".mp4",
+    ".mkv",
+}
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25MB
 
 
 def strip_command_prefix(name: str) -> str:
@@ -125,6 +141,7 @@ class SoundCommands(commands.Cog):
     @app_commands.describe(
         name="Name for the sound (used to play it)",
         url="URL to download from (YouTube, etc.)",
+        file="Audio/video file to upload (instead of a URL)",
         start="Start time (e.g. '90' or '1:30')",
         end="End time (e.g. '120' or '2:00')",
         overwrite="Overwrite existing sound if it exists (default: False)",
@@ -133,43 +150,83 @@ class SoundCommands(commands.Cog):
         self,
         interaction: Interaction,
         name: str,
-        url: str,
+        url: Optional[str] = None,
+        file: Optional[discord.Attachment] = None,
         start: Optional[str] = None,
         end: Optional[str] = None,
         overwrite: bool = False,
     ):
-        """Add a new sound from a URL."""
-        _ = _ = await interaction.response.defer(thinking=True)
-
+        """Add a new sound from a URL or an uploaded file."""
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
+
+        # Exactly one source: url or file
+        if (url is None) == (file is None):
+            _ = await interaction.response.send_message(
+                "❌ Provide exactly one of `url` or `file`.", ephemeral=True
+            )
+            return
 
         # Parse timestamps (supports both "90" and "1:30" formats)
         start_seconds = parse_timestamp(start) if start else None
         end_seconds = parse_timestamp(end) if end else None
 
         if start is not None and start_seconds is None:
-            _ = await interaction.followup.send(
-                f"❌ Invalid start time: '{start}'. Use seconds (90) or MM:SS (1:30)."
+            _ = await interaction.response.send_message(
+                f"❌ Invalid start time: '{start}'. Use seconds (90) or MM:SS (1:30).",
+                ephemeral=True,
             )
             return
         if end is not None and end_seconds is None:
-            _ = await interaction.followup.send(
-                f"❌ Invalid end time: '{end}'. Use seconds (90) or MM:SS (1:30)."
+            _ = await interaction.response.send_message(
+                f"❌ Invalid end time: '{end}'. Use seconds (90) or MM:SS (1:30).",
+                ephemeral=True,
             )
             return
 
-        logger.info(
-            f"User {interaction.user} ({interaction.user.id}) adding sound '{name}' from {url}"
-        )
+        if file is not None:
+            # Validate it looks like an audio/video file
+            ext = Path(file.filename).suffix.lower()
+            if ext not in AUDIO_EXTENSIONS:
+                _ = await interaction.response.send_message(
+                    f"❌ File doesn't appear to be audio. Supported formats: {', '.join(sorted(AUDIO_EXTENSIONS))}",
+                    ephemeral=True,
+                )
+                return
+            if file.size > MAX_UPLOAD_BYTES:
+                _ = await interaction.response.send_message(
+                    "❌ File too large. Maximum size is 25MB.", ephemeral=True
+                )
+                return
 
-        result = await sound_service.add_sound(
-            name=name,
-            url=url,
-            start=start_seconds,
-            end=end_seconds,
-            overwrite=overwrite,
-        )
+        _ = await interaction.response.defer(thinking=True)
+
+        if file is not None:
+            logger.info(
+                f"User {interaction.user} ({interaction.user.id}) adding sound '{name}' from uploaded file {file.filename}"
+            )
+            file_data = await file.read()
+            result = await sound_service.add_sound_from_file(
+                name=name,
+                file_data=file_data,
+                original_filename=file.filename,
+                start=start_seconds,
+                end=end_seconds,
+                overwrite=overwrite,
+                added_by=str(interaction.user),
+            )
+        else:
+            assert url is not None  # Guaranteed by the exactly-one check above
+            logger.info(
+                f"User {interaction.user} ({interaction.user.id}) adding sound '{name}' from {url}"
+            )
+            result = await sound_service.add_sound(
+                name=name,
+                url=url,
+                start=start_seconds,
+                end=end_seconds,
+                overwrite=overwrite,
+            )
 
         emoji = "✅" if result.success else "❌"
         _ = await interaction.followup.send(f"{emoji} {result.full_message()}")
@@ -425,40 +482,8 @@ class SoundCommands(commands.Cog):
             )
             return
 
-        embed = discord.Embed(title=f"🔊 {name}", color=discord.Color.blue())
-
-        if sound.source_title:
-            _ = embed.add_field(name="Title", value=sound.source_title, inline=False)
-        if sound.source_url:
-            _ = embed.add_field(name="Source", value=sound.source_url, inline=False)
-        if sound.source_duration:
-            _ = embed.add_field(
-                name="Original Duration",
-                value=f"{sound.source_duration:.1f}s",
-                inline=True,
-            )
-
-        # Timestamps
-        ts = sound.timestamps
-        if ts.start or ts.end:
-            ts_str = f"{ts.start or 0:.1f}s - {ts.end or 'end'}s"
-            _ = embed.add_field(name="Trim", value=ts_str, inline=True)
-
-        _ = embed.add_field(name="Volume", value=sound.volume_display, inline=True)
-        _ = embed.add_field(
-            name="Discord Plays",
-            value=str(sound.discord.plays),
-            inline=True,
-        )
-
-        if sound.aliases:
-            _ = embed.add_field(
-                name="Aliases",
-                value=", ".join(sound.aliases),
-                inline=False,
-            )
-
-        _ = embed.set_footer(text=f"Created: {sound.created.strftime('%Y-%m-%d')}")
+        metadata = sound_service.read_metadata(sound)
+        embed = build_info_card(name, sound, metadata)
 
         _ = await interaction.response.send_message(embed=embed)
 
@@ -492,6 +517,7 @@ class SoundCommands(commands.Cog):
         query: str,
     ):
         """Search for sounds."""
+        query = strip_command_prefix(query)
         results = sound_service.search_sounds(query)
         if not results:
             _ = await interaction.response.send_message(
@@ -598,6 +624,7 @@ class SoundCommands(commands.Cog):
     @app_commands.describe(name="Name for the group")
     async def group_create(self, interaction: Interaction, name: str):
         """Create a new sound group."""
+        name = strip_command_prefix(name)
         result = sound_service.create_group(name)
         emoji = "✅" if result.success else "❌"
         _ = await interaction.response.send_message(f"{emoji} {result.message}")
@@ -606,6 +633,7 @@ class SoundCommands(commands.Cog):
     @app_commands.describe(name="Name of the group")
     async def group_delete(self, interaction: Interaction, name: str):
         """Delete a sound group."""
+        name = strip_command_prefix(name)
         result = sound_service.delete_group(name)
         emoji = "✅" if result.success else "❌"
         _ = await interaction.response.send_message(f"{emoji} {result.message}")
@@ -614,6 +642,7 @@ class SoundCommands(commands.Cog):
     @app_commands.describe(group="Name of the group", sound="Sound to add")
     async def group_add(self, interaction: Interaction, group: str, sound: str):
         """Add a sound to a group."""
+        group = strip_command_prefix(group)
         sound = strip_command_prefix(sound)
         result = sound_service.add_to_group(group, sound)
         emoji = "✅" if result.success else "❌"
@@ -623,6 +652,7 @@ class SoundCommands(commands.Cog):
     @app_commands.describe(group="Name of the group", sound="Sound to remove")
     async def group_remove(self, interaction: Interaction, group: str, sound: str):
         """Remove a sound from a group."""
+        group = strip_command_prefix(group)
         sound = strip_command_prefix(sound)
         result = sound_service.remove_from_group(group, sound)
         emoji = "✅" if result.success else "❌"
@@ -652,6 +682,7 @@ class SoundCommands(commands.Cog):
         mode: app_commands.Choice[str],
     ):
         """Set how a group's members enter /random."""
+        name = strip_command_prefix(name)
         # discord.py guarantees mode.value matches one of our Choice values
         result = sound_service.set_group_random_mode(
             name, cast(RandomMode, mode.value)
@@ -664,6 +695,7 @@ class SoundCommands(commands.Cog):
     async def group_list(self, interaction: Interaction, name: Optional[str] = None):
         """List all groups or members of a specific group."""
         if name:
+            name = strip_command_prefix(name)
             members = sound_service.resolve_group(name)
             if members is None:
                 _ = await interaction.response.send_message(f"❌ Group '{name}' not found")
@@ -714,6 +746,7 @@ class SoundCommands(commands.Cog):
 
         # If a group is specified, pick from just that group
         if group is not None:
+            group = strip_command_prefix(group)
             members = sound_service.resolve_group(group)
             if members is None:
                 _ = await interaction.response.send_message(
@@ -781,6 +814,10 @@ class SoundCommands(commands.Cog):
         # Get duration for display
         duration = sound_service.get_sound_duration(name)
 
+        # Clip transcode in post_clip_and_card can exceed the 3s interaction
+        # window — defer + followup (same reason as /clip).
+        _ = await interaction.response.defer(thinking=True)
+
         # Play it
         assert interaction.guild is not None  # Commands only work in guilds
         member = (
@@ -792,10 +829,78 @@ class SoundCommands(commands.Cog):
             interaction.guild, audio_path, name=name, user=member, duration=duration
         )
 
-        emoji = "🎲" if success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {message}")
+        if not success:
+            _ = await interaction.followup.send(f"❌ {message}")
+            return
+
+        sound = sound_service.get_sound(name)
+        if sound:
+            sound.discord.plays += 1
+            sound.discord.last_played = datetime.now()
+            _ = state.save()
+            await post_clip_and_card(
+                interaction.followup.send, name, sound, status_text=f"🎲 {message}"
+            )
+        else:
+            _ = await interaction.followup.send(f"🎲 {message}")
 
     @app_commands.command(name="play")
+    @app_commands.describe(name="Name of the sound or group")
+    async def play_sound(self, interaction: Interaction, name: str):
+        """Play a sound (or queue it if something is playing). Accepts a group name (random member)."""
+        # Strip any command prefix from the name
+        name = strip_command_prefix(name)
+        resolved = sound_service.resolve_playable(name)
+        if not resolved:
+            matches = sound_service.search_sounds(name)
+            if len(matches) > 1:
+                names = [n for n, _ in matches[:5]]
+                _ = await interaction.response.send_message(
+                    f"❌ Multiple matches: {', '.join(names)}"
+                    + (" ..." if len(matches) > 5 else "")
+                )
+            else:
+                _ = await interaction.response.send_message(
+                    f"❌ Sound or group '{name}' not found"
+                )
+            return
+        name, audio_path = resolved
+
+        # Clip transcode in post_clip_and_card can exceed the 3s interaction
+        # window — defer + followup (same reason as /clip).
+        _ = await interaction.response.defer(thinking=True)
+
+        assert interaction.guild is not None  # Commands only work in guilds
+        member = (
+            interaction.guild.get_member(interaction.user.id)
+            if interaction.guild
+            else None
+        )
+        duration = sound_service.get_sound_duration(name)
+        success, message = await voice_service.play_sound(
+            interaction.guild,
+            audio_path,
+            name=name,
+            user=member,
+            duration=duration,
+        )
+
+        if not success:
+            _ = await interaction.followup.send(f"❌ {message}")
+            return
+
+        sound = sound_service.get_sound(name)
+        if sound:
+            sound.discord.plays += 1
+            sound.discord.last_played = datetime.now()
+            _ = state.save()
+            await post_clip_and_card(
+                interaction.followup.send, name, sound, status_text=f"🔊 {message}"
+            )
+        else:
+            _ = await interaction.followup.send(f"🔊 {message}")
+
+    @app_commands.command(name="playurl")
     @app_commands.describe(
         url="URL to download and play (YouTube, etc.)",
         start="Start time in seconds (optional)",
@@ -934,6 +1039,10 @@ class QueueCog(commands.Cog):
             return
         name, audio_path = resolved
 
+        # Clip transcode in post_clip_and_card can exceed the 3s interaction
+        # window — defer + followup (same reason as /clip).
+        _ = await interaction.response.defer(thinking=True)
+
         assert interaction.guild is not None  # Commands only work in guilds
         member = (
             interaction.guild.get_member(interaction.user.id)
@@ -950,8 +1059,20 @@ class QueueCog(commands.Cog):
             duration=duration,
         )
 
-        emoji = "⏭️" if success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {message}")
+        if not success:
+            _ = await interaction.followup.send(f"❌ {message}")
+            return
+
+        sound = sound_service.get_sound(name)
+        if sound:
+            sound.discord.plays += 1
+            sound.discord.last_played = datetime.now()
+            _ = state.save()
+            await post_clip_and_card(
+                interaction.followup.send, name, sound, status_text=f"⏭️ {message}"
+            )
+        else:
+            _ = await interaction.followup.send(f"⏭️ {message}")
 
     @app_commands.command(name="playnow")
     @app_commands.describe(name="Name of the sound or group")
@@ -975,6 +1096,10 @@ class QueueCog(commands.Cog):
             return
         name, audio_path = resolved
 
+        # Clip transcode in post_clip_and_card can exceed the 3s interaction
+        # window — defer + followup (same reason as /clip).
+        _ = await interaction.response.defer(thinking=True)
+
         assert interaction.guild is not None  # Commands only work in guilds
         member = (
             interaction.guild.get_member(interaction.user.id)
@@ -990,8 +1115,20 @@ class QueueCog(commands.Cog):
             duration=duration,
         )
 
-        emoji = "🎵" if success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {message}")
+        if not success:
+            _ = await interaction.followup.send(f"❌ {message}")
+            return
+
+        sound = sound_service.get_sound(name)
+        if sound:
+            sound.discord.plays += 1
+            sound.discord.last_played = datetime.now()
+            _ = state.save()
+            await post_clip_and_card(
+                interaction.followup.send, name, sound, status_text=f"🎵 {message}"
+            )
+        else:
+            _ = await interaction.followup.send(f"🎵 {message}")
 
     @app_commands.command(name="queue")
     async def show_queue(self, interaction: Interaction):
@@ -1083,6 +1220,10 @@ class QueueCog(commands.Cog):
         # Get duration for display
         duration = sound_service.get_sound_duration(name)
 
+        # Clip transcode in post_clip_and_card can exceed the 3s interaction
+        # window — defer + followup (same reason as /clip).
+        _ = await interaction.response.defer(thinking=True)
+
         # Get member for channel detection
         member = (
             interaction.guild.get_member(interaction.user.id)
@@ -1094,8 +1235,22 @@ class QueueCog(commands.Cog):
             interaction.guild, audio_path, name=name, user=member, duration=duration
         )
 
-        emoji = "🔁" if success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {message}")
+        if not success:
+            _ = await interaction.followup.send(f"❌ {message}")
+            return
+
+        # Post clip + card once at loop start (not per iteration); count the
+        # loop as a single play.
+        sound = sound_service.get_sound(name)
+        if sound:
+            sound.discord.plays += 1
+            sound.discord.last_played = datetime.now()
+            _ = state.save()
+            await post_clip_and_card(
+                interaction.followup.send, name, sound, status_text=f"🔁 {message}"
+            )
+        else:
+            _ = await interaction.followup.send(f"🔁 {message}")
 
     @app_commands.command(name="pause")
     async def pause_playback(self, interaction: Interaction):
@@ -1137,217 +1292,17 @@ class QueueCog(commands.Cog):
 
 
 class PlaybackCog(commands.Cog):
-    """Text commands for sound playback and file uploads."""
+    """The !soundname play listener (the only prefix-command surface).
+
+    Everything else is a slash command — the old text commands (!add, !stop,
+    !skip, !queue, ...) were removed in favor of their slash equivalents.
+    """
 
     def __init__(self, bot: SoundBot):
         super().__init__()
         self.bot = bot
         # Get all configured prefixes
         self.prefixes = settings.twitch_command_prefixes or ["!"]
-
-    @commands.command(name="add")
-    async def add_sound_file(
-        self,
-        ctx: commands.Context[SoundBot],
-        name: str,
-        source_url: Optional[str] = None,
-    ):
-        """
-        Add a sound from an attached audio file.
-
-        Usage: !add soundname [optional_source_url]
-        Attach an audio file (mp3, wav, ogg, etc.) to your message.
-        """
-        # Check for attachment
-        if not ctx.message.attachments:
-            _ = await ctx.send(
-                "❌ Please attach an audio file to your message.\nUsage: `!add soundname` with an audio file attached."
-            )
-            return
-
-        attachment = ctx.message.attachments[0]
-
-        # Validate it looks like an audio file
-        audio_extensions = {
-            ".mp3",
-            ".wav",
-            ".ogg",
-            ".m4a",
-            ".flac",
-            ".aac",
-            ".opus",
-            ".webm",
-            ".mp4",
-            ".mkv",
-        }
-        ext = Path(attachment.filename).suffix.lower()
-        if ext not in audio_extensions:
-            _ = await ctx.send(
-                f"❌ File doesn't appear to be audio. Supported formats: {', '.join(sorted(audio_extensions))}"
-            )
-            return
-
-        # Size limit (e.g., 25MB)
-        max_size = 25 * 1024 * 1024
-        if attachment.size > max_size:
-            _ = await ctx.send("❌ File too large. Maximum size is 25MB.")
-            return
-
-        # Strip any command prefix from the name
-        name = strip_command_prefix(name)
-
-        # Show progress
-        progress_msg = _ = await ctx.send(
-            f"⏳ Processing `{name}` from uploaded file..."
-        )
-
-        try:
-            # Download the attachment
-            file_data = await attachment.read()
-
-            # Add the sound
-            result = await sound_service.add_sound_from_file(
-                name=name,
-                file_data=file_data,
-                original_filename=attachment.filename,
-                source_url=source_url,
-                added_by=str(ctx.author),
-            )
-
-            emoji = "✅" if result.success else "❌"
-            _ = await progress_msg.edit(content=f"{emoji} {result.full_message()}")
-
-        except Exception as e:
-            logger.error(f"Error adding sound from file: {e}")
-            _ = await progress_msg.edit(content=f"❌ Error: {e}")
-
-    @commands.command(name="stop")
-    async def stop_playback(self, ctx: commands.Context[SoundBot]):
-        """Stop the currently playing sound."""
-        assert ctx.guild is not None  # Text commands only work in guilds
-        success, _ = await voice_service.stop(ctx.guild.id)
-        if success:
-            _ = await ctx.send("⏹️ Stopped playback")
-        else:
-            _ = await ctx.send("❌ Nothing is playing")
-
-    @commands.command(name="skip")
-    async def skip_sound(self, ctx: commands.Context[SoundBot]):
-        """Skip the current sound."""
-        assert ctx.guild is not None  # Text commands only work in guilds
-        success, message = await voice_service.skip(ctx.guild.id)
-        emoji = "⏭️" if success else "❌"
-        _ = await ctx.send(f"{emoji} {message}")
-
-    @commands.command(name="pause")
-    async def pause_playback(self, ctx: commands.Context[SoundBot]):
-        """Pause playback."""
-        assert ctx.guild is not None  # Text commands only work in guilds
-        success, message = await voice_service.pause(ctx.guild.id)
-        emoji = "⏸️" if success else "❌"
-        _ = await ctx.send(f"{emoji} {message}")
-
-    @commands.command(name="resume", aliases=["unpause"])
-    async def resume_playback(self, ctx: commands.Context[SoundBot]):
-        """Resume playback."""
-        assert ctx.guild is not None  # Text commands only work in guilds
-        success, message = await voice_service.resume(ctx.guild.id)
-        emoji = "▶️" if success else "❌"
-        _ = await ctx.send(f"{emoji} {message}")
-
-    @commands.command(name="queue", aliases=["q"])
-    async def show_queue(self, ctx: commands.Context[SoundBot]):
-        """Show the queue."""
-        assert ctx.guild is not None  # Text commands only work in guilds
-        current = voice_service.get_current(ctx.guild.id)
-        queue = voice_service.get_queue(ctx.guild.id)
-
-        if not current and not queue:
-            _ = await ctx.send("📭 Queue is empty")
-            return
-
-        parts = []
-        if current:
-            status = "⏸️" if voice_service.is_paused(ctx.guild.id) else "▶️"
-            parts.append(f"{status} **{current.name}**")
-
-        if queue:
-            for i, item in enumerate(queue[:5]):
-                parts.append(f"{i + 1}. {item.name}")
-            if len(queue) > 5:
-                parts.append(f"... +{len(queue) - 5} more")
-
-        _ = await ctx.send("\n".join(parts))
-
-    @commands.command(name="leave")
-    async def leave_voice(self, ctx: commands.Context[SoundBot]):
-        """Leave the voice channel."""
-        assert ctx.guild is not None  # Text commands only work in guilds
-        await voice_service.disconnect(ctx.guild.id)
-        _ = await ctx.send("👋 Left voice channel")
-
-    @commands.command(name="sounds")
-    async def quick_list(
-        self, ctx: commands.Context[SoundBot], *, search: Optional[str] = None
-    ):
-        """Quick list of sounds."""
-        if search:
-            results = sound_service.search_sounds(search)
-            names = [name for name, _ in results]
-        else:
-            names = sorted(sound_service.list_sounds().keys())
-
-        if not names:
-            _ = await ctx.send("No sounds found.")
-            return
-
-        # Show first 30 in a compact format
-        display = names[:30]
-        msg = f"**Sounds:** {', '.join(display)}"
-        if len(names) > 30:
-            msg += f" (+{len(names) - 30} more)"
-        _ = await ctx.send(msg)
-
-    @commands.command(name="next", aliases=["playnext"])
-    async def play_next(self, ctx: commands.Context[SoundBot], *, sound_name: str):
-        """Add a sound to play next in the queue. Accepts a group name (random member)."""
-        # Strip any command prefix from the name
-        sound_name = strip_command_prefix(sound_name)
-        resolved = sound_service.resolve_playable(sound_name)
-        if not resolved:
-            matches = sound_service.search_sounds(sound_name)
-            if len(matches) > 1:
-                names = [n for n, _ in matches[:5]]
-                _ = await ctx.send(
-                    f"Multiple matches: {', '.join(names)}"
-                    + (" ..." if len(matches) > 5 else "")
-                )
-            else:
-                _ = await ctx.send(f"❌ Sound or group '{sound_name}' not found")
-            return
-        sound_name, audio_path = resolved
-
-        assert ctx.guild is not None  # Text commands only work in guilds
-        member = ctx.guild.get_member(ctx.author.id)
-        duration = sound_service.get_sound_duration(sound_name)
-        success, message = await voice_service.queue_sound(
-            ctx.guild,
-            audio_path,
-            sound_name,
-            user=member,
-            play_next=True,
-            duration=duration,
-        )
-
-        if success:
-            sound = sound_service.get_sound(sound_name)
-            if sound:
-                sound.discord.plays += 1
-                sound.discord.last_played = datetime.now()
-                _ = state.save()
-            _ = await ctx.send(f"⏭️ {message}")
-        else:
-            _ = await ctx.send(f"❌ {message}")
 
     def _parse_sound_commands(self, content: str) -> list[str]:
         """Parse multiple sound commands from a message.
@@ -1408,39 +1363,12 @@ class PlaybackCog(commands.Cog):
         if not sound_names:
             return
 
-        # Skip registered commands (only check first command for backward compatibility)
-        registered_commands = [
-            "add",
-            "stop",
-            "leave",
-            "sounds",
-            "help",
-            "skip",
-            "pause",
-            "resume",
-            "unpause",
-            "queue",
-            "q",
-            "next",
-            "playnext",
-            "now",
-            "playnow",
-        ]
-        if sound_names[0] in registered_commands:
-            return
-
-        # Filter out registered commands from the list
-        sound_names = [s for s in sound_names if s not in registered_commands]
-
-        if not sound_names:
-            return
-
         # Get the member object
         member = message.guild.get_member(message.author.id)
 
         # Track results for response
-        played_sounds = []
-        errors = []
+        played_sounds: list[tuple[str, Sound]] = []
+        errors: list[str] = []
 
         for sound_name in sound_names:
             # Try to find the sound
@@ -1501,8 +1429,7 @@ class PlaybackCog(commands.Cog):
                 if sound:
                     sound.discord.plays += 1
                     sound.discord.last_played = datetime.now()
-
-                played_sounds.append(resolved_name)
+                    played_sounds.append((resolved_name, sound))
             else:
                 errors.append(f"'{resolved_name}': {result}")
 
@@ -1510,14 +1437,10 @@ class PlaybackCog(commands.Cog):
         if played_sounds:
             _ = state.save()
 
-        # Send response
-        if played_sounds:
-            if len(played_sounds) == 1:
-                _ = await message.channel.send(f"🔊 Playing **{played_sounds[0]}**")
-            else:
-                _ = await message.channel.send(
-                    f"🔊 Queued {len(played_sounds)} sounds: {', '.join(played_sounds)}"
-                )
+        # Post clip + info card for each played sound (clip rides alone so
+        # Discord auto-embeds the inline video player; card follows).
+        for played_name, played_sound in played_sounds:
+            await post_clip_and_card(message.channel.send, played_name, played_sound)
 
         if errors:
             _ = await message.channel.send(f"❌ Errors: {'; '.join(errors)}")
@@ -1556,7 +1479,7 @@ class UserSettingsCog(commands.Cog):
             return
 
         # Validate sound or group exists
-        sound_name = sound_name.lower()
+        sound_name = strip_command_prefix(sound_name).lower()
         if sound_name in state.groups:
             pass
         elif sound_service.get_sound(sound_name):
@@ -1611,7 +1534,7 @@ class UserSettingsCog(commands.Cog):
             return
 
         # Validate sound or group exists
-        sound_name = sound_name.lower()
+        sound_name = strip_command_prefix(sound_name).lower()
         if sound_name in state.groups:
             pass
         elif sound_service.get_sound(sound_name):
