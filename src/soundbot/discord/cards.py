@@ -193,7 +193,7 @@ async def post_clip_and_card(
 ) -> None:
     """Post one compact line for a played sound:
 
-        🎵 [name](clip url) 🔗 [Source Title](<source url>)
+        🎵 [name](clip url)   🔗 [Source Title](<source url>)
 
     The masked clip link still unfurls into the inline video player
     (bot-only behavior); the source link is wrapped in <> to suppress
@@ -225,6 +225,8 @@ async def post_clip_and_card(
     source_url = timestamped_source_url(sound)
     if source_url:
         source_label = sound.source_title or "source"
-        line += f" 🔗 [{source_label}](<{source_url}>)"
+        # Wide spacing so the two links read as separate things at a glance
+        # (Discord preserves regular spaces in message content).
+        line += f"   🔗 [{source_label}](<{source_url}>)"
 
     _ = await send(line)
