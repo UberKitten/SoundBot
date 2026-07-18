@@ -416,9 +416,11 @@ class FFmpegService:
                 "-i",
                 str(audio_file),
                 "-filter_complex",
-                f"color=c={bg}:s={size}[bg];"
-                f"[0:a]showwavespic=s={size}:colors={colors}[w];"
-                f"[bg][w]overlay=format=auto",
+                (
+                    f"color=c={bg}:s={size}[bg];"
+                    + f"[0:a]showwavespic=s={size}:colors={colors}[w];"
+                    + "[bg][w]overlay=format=auto"
+                ),
                 "-frames:v",
                 "1",
                 str(out),
@@ -473,8 +475,10 @@ class FFmpegService:
                         str(audio_file),
                         "-filter_complex",
                         # Static layers; only the reveal boundary moves
-                        f"[0:v][1:v]xfade=transition=wiperight:"
-                        f"duration={duration:.3f}:offset=0[v]",
+                        (
+                            "[0:v][1:v]xfade=transition=wiperight:"
+                            + f"duration={duration:.3f}:offset=0[v]"
+                        ),
                         "-map",
                         "[v]",
                         "-map",
