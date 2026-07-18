@@ -409,6 +409,39 @@ class FFmpegService:
                 return stderr.decode() if stderr else "Unknown error"
             return None
 
+        async def measure_peak_db() -> Optional[float]:
+            """Max volume in dBFS via volumedetect (None on failure)."""
+            proc = await asyncio.create_subprocess_exec(
+                "ffmpeg",
+                "-i",
+                str(audio_file),
+                "-af",
+                "volumedetect",
+                "-f",
+                "null",
+                "-",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            for line in stderr.decode(errors="replace").splitlines():
+                if "max_volume:" in line:
+                    try:
+                        return float(line.split("max_volume:")[1].split("dB")[0])
+                    except (ValueError, IndexError):
+                        return None
+            return None
+
+        # The stored audio is loudness-normalized to ~-20 LUFS, which leaves
+        # peaks well below full scale — drawn literally, every waveform looks
+        # tiny. Peak-normalize FOR THE PICTURE ONLY (the audio track is
+        # untouched): boost so the loudest sample hits ~-0.5 dBFS. Capped so
+        # a near-silent file doesn't amplify noise into a solid bar.
+        peak_db = await measure_peak_db()
+        picture_gain_db = 0.0
+        if peak_db is not None and peak_db < -0.5:
+            picture_gain_db = min(-0.5 - peak_db, 30.0)
+
         def wavepic_args(colors: str, out: Path) -> list[str]:
             return [
                 "ffmpeg",
@@ -418,7 +451,10 @@ class FFmpegService:
                 "-filter_complex",
                 (
                     f"color=c={bg}:s={size}[bg];"
-                    + f"[0:a]showwavespic=s={size}:colors={colors}[w];"
+                    + f"[0:a]volume={picture_gain_db:.2f}dB,"
+                    # filter=peak: draw each column's peak, not its average —
+                    # dense/compressed audio stays visually tall.
+                    + f"showwavespic=s={size}:colors={colors}:filter=peak[w];"
                     + "[bg][w]overlay=format=auto"
                 ),
                 "-frames:v",
