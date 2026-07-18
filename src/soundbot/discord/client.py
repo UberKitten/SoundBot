@@ -1395,40 +1395,31 @@ class PlaybackCog(commands.Cog):
         self.prefixes = settings.twitch_command_prefixes or ["!"]
 
     def _parse_sound_commands(self, content: str) -> list[str]:
-        """Parse multiple sound commands from a message.
+        """Parse sound commands anywhere in a message.
 
-        Supports messages like "!sound1 !sound2 !sound3" returning ["sound1", "sound2", "sound3"].
-        Also supports single commands like "!sound1" returning ["sound1"].
+        A command is a prefix at a word start (start-of-message or after
+        whitespace) immediately followed by a name: "!pootis dispenser here"
+        and "oh !yesyes dude" both work, as does "!sound1 !sound2".
+
+        Word-start anchoring keeps prose and URLs safe: the "?" in
+        "youtube.com/watch?v=x" or the "!" in "wow!" never trigger (mid-word
+        or not followed by a name). Trailing punctuation is stripped so
+        "wow !airhorn!" plays airhorn. Unknown names are silently ignored
+        downstream, which keeps remaining false positives harmless.
         """
         import re
 
-        # Build regex pattern to split on any prefix
-        # Escape special regex characters in prefixes
-        escaped_prefixes = [re.escape(p) for p in self.prefixes]
-        pattern = f"({'|'.join(escaped_prefixes)})"
+        prefix_pattern = "|".join(re.escape(p) for p in self.prefixes)
+        # Word start → prefix → the name (non-space, not another prefix char)
+        pattern = rf"(?:^|(?<=\s))(?:{prefix_pattern})(\S+)"
 
-        # Split by prefixes, keeping delimiters
-        parts = re.split(pattern, content)
-
-        commands = []
-        i = 0
-        while i < len(parts):
-            part = parts[i]
-            # Check if this part is a prefix
-            if part in self.prefixes:
-                # Next part (if exists) is the command
-                if i + 1 < len(parts):
-                    cmd = parts[i + 1].strip().lower()
-                    # Only take the first word (sound name)
-                    if cmd:
-                        cmd_word = cmd.split()[0]
-                        if cmd_word:
-                            commands.append(cmd_word)
-                    i += 2
-                else:
-                    i += 1
-            else:
-                i += 1
+        commands: list[str] = []
+        for match in re.finditer(pattern, content):
+            name = match.group(1).strip().lower()
+            # Strip trailing punctuation ("wow !airhorn!" → "airhorn")
+            name = name.rstrip(".,!?;:")
+            if name:
+                commands.append(name)
 
         return commands
 
@@ -1440,14 +1431,13 @@ class PlaybackCog(commands.Cog):
         if not message.guild:
             return
 
-        # Check if message starts with any of our prefixes
+        # Cheap gate: any prefix anywhere (the parser does the precise
+        # word-start matching; this just skips regex work on most messages).
         content = message.content
-        has_prefix = any(content.startswith(prefix) for prefix in self.prefixes)
-
-        if not has_prefix:
+        if not any(prefix in content for prefix in self.prefixes):
             return
 
-        # Parse all sound commands from the message
+        # Parse all sound commands from the message (mid-message works too)
         sound_names = self._parse_sound_commands(content)
 
         if not sound_names:
