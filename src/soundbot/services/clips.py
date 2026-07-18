@@ -95,13 +95,33 @@ async def ensure_clip(
     the clip's source file (an untrimmed original) has an unchanged mtime.
     """
     sound_dir = sounds_dir / sound.directory
+    clip_path = clip_path_for(sound, sounds_dir)
 
     source = await resolve_clip_source(sound, sound_dir)
     if source is None:
-        return None
-    source_path, trim_start, trim_end = source
+        # No video stream anywhere → waveform video from the playable audio,
+        # so every sound gets an inline player.
+        audio_path = sound_dir / sound.files.trimmed_audio
+        if not audio_path.exists():
+            return None
 
-    clip_path = clip_path_for(sound, sounds_dir)
+        if not force and not _needs_regenerate(clip_path, audio_path):
+            return ClipResult(path=clip_path, generated=False)
+
+        probe = await ffmpeg_service.probe(audio_path)
+        if probe is None or probe.duration is None or probe.duration <= 0:
+            return None
+
+        result = await ffmpeg_service.make_waveform_video(
+            audio_path, clip_path, duration=probe.duration
+        )
+        if not result.success:
+            raise ClipError(result.error or "Unknown ffmpeg error")
+        return ClipResult(
+            path=clip_path, generated=True, duration_seconds=result.duration_seconds
+        )
+
+    source_path, trim_start, trim_end = source
 
     if not force and not _needs_regenerate(clip_path, source_path):
         return ClipResult(path=clip_path, generated=False)

@@ -361,6 +361,114 @@ class FFmpegService:
             logger.error(f"Error making browser video: {e}")
             return ProcessResult(success=False, error=str(e))
 
+    async def make_waveform_video(
+        self,
+        audio_file: Path,
+        output_file: Path,
+        duration: float,
+    ) -> ProcessResult:
+        """
+        Render a SoundCloud-style waveform progress video from audio.
+
+        Two static waveform frames (played-orange, unplayed-gray on a dark
+        background) with an xfade wiperight between them lasting the full
+        duration — the waveform never moves; only the orange/gray boundary
+        sweeps left-to-right in sync with playback. 4:1 aspect (validated as
+        the best-rendering shape in Discord's ~400px preview box on desktop
+        and mobile); internal width scales with duration so long sounds keep
+        waveform detail instead of turning into a mushy strip.
+
+        Audio is AAC (Discord/Safari-safe), output +faststart, like
+        make_browser_video.
+        """
+        # 4:1 aspect; wider canvas for longer sounds (capped: Discord scales
+        # display to ~400px anyway, this only buys waveform resolution).
+        if duration <= 15:
+            width = 640
+        elif duration <= 60:
+            width = 1280
+        else:
+            width = 2560
+        height = width // 4
+        size = f"{width}x{height}"
+
+        bg = "0x1e1f24"  # dark card background
+        played = "0xff5500|0xff7733"  # SoundCloud orange (L|R channels)
+        unplayed = "0x555a63|0x6a707a"  # muted gray
+
+        filter_complex = (
+            # Two static frames from the same audio: gray then orange
+            f"color=c={bg}:s={size}[bg1];"
+            f"color=c={bg}:s={size}[bg2];"
+            f"[0:a]showwavespic=s={size}:colors={unplayed}[uw];"
+            f"[0:a]showwavespic=s={size}:colors={played}[pw];"
+            f"[bg1][uw]overlay=format=auto,loop=-1:1,fps=30,"
+            f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[u];"
+            f"[bg2][pw]overlay=format=auto,loop=-1:1,fps=30,"
+            f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[p];"
+            # Static layers; only the reveal boundary moves
+            f"[u][p]xfade=transition=wiperight:duration={duration:.3f}:offset=0[v]"
+        )
+
+        args = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(audio_file),
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[v]",
+            "-map",
+            "0:a",
+            "-t",
+            f"{duration:.3f}",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+            "-profile:v",
+            "main",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+            str(output_file),
+        ]
+
+        try:
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            start_time = time.monotonic()
+            logger.info(f"Making waveform video: {audio_file} -> {output_file}")
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            elapsed = time.monotonic() - start_time
+
+            if proc.returncode != 0:
+                error = stderr.decode() if stderr else "Unknown error"
+                logger.error(f"FFmpeg waveform failed: {error}")
+                return ProcessResult(
+                    success=False, error=error, duration_seconds=elapsed
+                )
+
+            return ProcessResult(
+                success=True, output_file=output_file, duration_seconds=elapsed
+            )
+
+        except Exception as e:
+            logger.error(f"Error making waveform video: {e}")
+            return ProcessResult(success=False, error=str(e))
+
     async def get_duration(self, input_file: Path) -> Optional[float]:
         """Get the duration of a media file in seconds."""
         result = await self.probe(input_file)
