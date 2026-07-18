@@ -175,9 +175,11 @@ async def post_clip_and_card(
             logger.error(f"Play-clip generation failed for '{name}': {e}")
 
     if clip_available:
-        # A bare direct .mp4 link as message content is what makes Discord
-        # render the native inline video player — no embed on this message.
-        _ = await send(build_clip_share_url(name))
+        # A direct .mp4 link as message content is what makes Discord render
+        # the native inline video player — no embed on this message. Masked
+        # markdown links (bot-only) still unfurl, so the long signed URL
+        # hides behind a short label.
+        _ = await send(f"[▶ {name}]({build_clip_share_url(name)})")
 
     card = build_play_card(name, sound)
     if status_text is not None:
