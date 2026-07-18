@@ -36,6 +36,7 @@ export interface Sound {
   discord_plays: number;
   twitch_plays: number;
   web_plays: number;
+  discord_clips: number;
   is_legacy: boolean;
   has_video: boolean;
 }

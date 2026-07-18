@@ -165,6 +165,10 @@ def build_info_card(
     _ = embed.add_field(
         name="Discord Plays", value=str(sound.discord.plays), inline=True
     )
+    if sound.discord_clips.plays:
+        _ = embed.add_field(
+            name="Clips", value=str(sound.discord_clips.plays), inline=True
+        )
 
     if sound.aliases:
         _ = embed.add_field(

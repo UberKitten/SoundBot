@@ -85,6 +85,9 @@ class Sound(BaseModel):
     discord: Stats = Field(default_factory=Stats)
     twitch: Stats = Field(default_factory=Stats)
     web: Stats = Field(default_factory=Stats)
+    # Clip shown in Discord chat but NOT played in a voice channel (nobody
+    # was in voice). Mutually exclusive with `discord` plays per event.
+    discord_clips: Stats = Field(default_factory=Stats)
 
 
 class SoundGroupData(BaseModel):

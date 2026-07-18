@@ -31,6 +31,8 @@ class SoundResponse(BaseModel):
     discord_plays: int = 0
     twitch_plays: int = 0
     web_plays: int = 0
+    # Clip shown in Discord chat without a voice-channel play
+    discord_clips: int = 0
 
 
 class GroupResponse(BaseModel):

@@ -69,6 +69,37 @@ The web API has two tiers:
 - All mutations (Discord commands AND admin API) go through `sound_service` methods so WebSocket events + webhooks fire.
 - Never expose tokens, internal state, or user data via API. Discord OAuth access tokens are used once (identify) and discarded; sessions are itsdangerous-signed cookies, no server-side session store.
 
+## Discord Command Conventions
+
+Every Discord command must follow these. Check new commands against this list.
+
+**Surface:**
+- Slash commands only. The single exception is the `!soundname` play listener in `PlaybackCog` — never add other text commands.
+- `@app_commands.guild_only()` on any command needing a guild (all playback/voice). No manual `if not interaction.guild` checks.
+
+**Name handling:**
+- Apply `strip_command_prefix()` to every user-supplied sound/group name (and search queries) before use.
+- **Edit/destructive commands** (delete, rename, trim, adjust, volume, redownload, alias, group membership) resolve names **exactly** via `resolve_sound_name` — exact name or alias only, never fuzzy auto-pick. On miss, suggest via `search_sounds`: `Did you mean: a, b, c?` — but never act on a guess.
+- **Play commands** (play, playnext, playnow, loop, random, entrance/exit) resolve via `resolve_playable` (exact → alias → group random member → single partial match). Group names accepted wherever playable.
+
+**Errors:**
+- Error/validation replies are **ephemeral**; success replies are public. Ephemerality locks in at `defer()` time, so do all validation and name resolution *before* deferring. Post-defer failures (downloads, ffmpeg) stay as normal followups.
+- Message shape: `❌ Sound '{name}' not found` / `❌ Sound or group '{name}' not found` (group-accepting commands), with the `Did you mean` tail when matches exist (≤5, ellipsis if more).
+- Timestamp errors: `❌ Invalid start time: '{x}'. Use seconds (90) or MM:SS (1:30).`
+
+**Inputs:**
+- User-facing timestamps are strings parsed with `parse_timestamp` (accepts `90` and `1:30`) — never raw float parameters.
+
+**Output:**
+- Prefer **embeds** for informational/browse displays (info, search, list, queue, group list, alias list); plain one-liners with a status emoji for action confirmations.
+- Emoji vocabulary: ✅ success · ❌ error · ℹ️ no-op · 🔊 sound/play · 🎲 random/groups · 🎵 play/queue · ⏭️ next/skip · ⏹️ stop · ⏸️ pause · ▶️ resume/playing · 🔁 loop · 📭 empty · 🚪 entrance/exit · 👋 leave. Embed colors: blue for sounds, purple for groups.
+- Successful plays post one compact line via `post_clip_and_card` (`discord/cards.py`): `{emoji} [name](clip url) 🔗 [Source Title](<source url>)` — masked clip link unfurls the inline video player; no embed on play posts (an embed would suppress the unfurl). Falls back to a plain bold name when there's no video/clip.
+- Anything that can exceed the 3s interaction window (downloads, transcodes) must `defer(thinking=True)` first.
+
+**Side effects:**
+- Play counting lives in the voice layer (`_play_next` → `record_discord_play`) — never count plays in command handlers. Each loop iteration counts.
+- All mutations go through `sound_service` so WebSocket events + webhooks fire (see Security section).
+
 ## Key Patterns
 
 - **Platform handling**: Windows uses `asyncio.run()`, Unix uses `uvloop.run()` — see `__main__.py`

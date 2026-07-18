@@ -40,6 +40,7 @@ async def get_sounds():
                 discord_plays=sound.discord.plays,
                 twitch_plays=sound.twitch.plays,
                 web_plays=sound.web.plays,
+                discord_clips=sound.discord_clips.plays,
             )
         )
 

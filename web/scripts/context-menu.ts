@@ -228,6 +228,7 @@ function showProperties(sound: Sound) {
     ["Trim End", sound.trim_end !== null ? `${sound.trim_end}s` : null],
     ["Source Duration", sound.source_duration !== null ? `${sound.source_duration}s` : null],
     ["Discord Plays", `${sound.discord_plays}`],
+    ["Discord Clips", sound.discord_clips ? `${sound.discord_clips}` : null],
     ["Web Plays", `${sound.web_plays}`],
     ["Created", sound.created ? formatDate(sound.created) : null],
     ["Modified", sound.modified ? formatDate(sound.modified) : null],

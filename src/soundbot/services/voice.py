@@ -10,6 +10,8 @@ from typing import Optional
 
 import discord
 
+from soundbot.services.sounds import sound_service
+
 logger = logging.getLogger(__name__)
 
 
@@ -235,7 +237,12 @@ class VoiceService:
         # Find channel to play in
         channel = await self.find_best_channel(guild, item.user)
         if not channel:
-            logger.error("No voice channel found to play in")
+            # Expected when nobody is in voice — the play post already went
+            # out (it has standalone value: inline clip); audio is best-effort.
+            # Count it as a clip-shown event instead of a VC play (the two
+            # counters are mutually exclusive per event).
+            logger.info("No voice channel found to play in; skipping playback")
+            sound_service.record_discord_play(item.name, clip_only=True)
             state.current = None
             return
 
@@ -274,6 +281,14 @@ class VoiceService:
             # Track when playback started
             state.current_started_at = datetime.now()
             voice_client.play(source, after=after_play)
+
+            # Count this playback start. This is the single funnel every
+            # entry point routes through (play_sound/queue_sound, play_now,
+            # loop_sound, entrance/exit queueing), and each loop iteration
+            # re-enters here via the re-queue below — so every actual
+            # playback start, including each loop repetition, is counted
+            # exactly once. No-ops on unresolvable names (temp quick-play).
+            sound_service.record_discord_play(item.name)
 
             # Wait for playback to complete (or be stopped)
             _ = await done_event.wait()

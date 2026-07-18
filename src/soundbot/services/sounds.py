@@ -178,6 +178,29 @@ class SoundService:
         # JSON object keys are always str
         return {str(k): v for k, v in parsed.items()}
 
+    def record_discord_play(self, name: str, *, clip_only: bool = False) -> None:
+        """Record a Discord event for a sound and save.
+
+        clip_only=False: the sound actually started playing in a voice
+        channel — bumps `discord` (plays). The single counting path for
+        every Discord-triggered play (slash commands, !soundname listener,
+        entrance/exit, loop iterations).
+
+        clip_only=True: the clip was shown in chat but nobody was in voice
+        so no audio played — bumps `discord_clips` instead. The two counters
+        are mutually exclusive per event.
+
+        No-op for names that don't resolve (e.g. /playurl temp titles).
+        """
+        resolved = self.resolve_sound_name(name)
+        if not resolved:
+            return
+        _, sound = resolved
+        stats = sound.discord_clips if clip_only else sound.discord
+        stats.plays += 1
+        stats.last_played = datetime.now()
+        _ = state.save()
+
     def resolve_sound_name(self, name: str) -> Optional[tuple[str, Sound]]:
         """Resolve a name (or alias) to a canonical sound name and Sound object."""
         name_lower = name.lower()
