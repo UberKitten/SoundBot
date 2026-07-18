@@ -160,9 +160,10 @@ class SoundBot(commands.Bot):
         prefixes = settings.twitch_command_prefixes or ["!"]
         logger.info(f"Command prefixes: {prefixes}")
 
-        # Clear stale guild-specific commands (from old test_guild_ids usage)
-        if not self.test_guild_ids:
-            await self._clear_guild_commands()
+        # Always clear guild-specific registrations: commands are synced
+        # globally (setup_hook), and a leftover guild copy makes every
+        # command show up twice in the client picker.
+        await self._clear_guild_commands()
 
     @override
     async def setup_hook(self) -> None:
@@ -174,16 +175,12 @@ class SoundBot(commands.Bot):
         await self.add_cog(UserSettingsCog(self))
         await self.add_cog(VoiceEventsCog(self))
 
-        # Sync commands to test guilds (faster) or globally
-        if self.test_guild_ids:
-            for guild_id in self.test_guild_ids:
-                guild = discord.Object(id=guild_id)
-                self.tree.copy_global_to(guild=guild)
-                _ = await self.tree.sync(guild=guild)
-                logger.info(f"Synced commands to guild {guild_id}")
-        else:
-            _ = await self.tree.sync()
-            logger.info("Synced commands globally")
+        # Global-only sync. Per-guild copies (the old TEST_GUILD_IDS fast
+        # path) duplicate every command in the client picker when a global
+        # set also exists, and leave other guilds on a stale global set.
+        # Global propagation is fast enough these days.
+        _ = await self.tree.sync()
+        logger.info("Synced commands globally")
 
     # Not @override: the base method is generic over its bot type in a way
     # that no concrete signature satisfies; discord.py dispatches by name.
