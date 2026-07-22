@@ -16,7 +16,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from soundbot.models.sounds import canonicalize_trim_timestamp
 
 from soundbot.services.ffmpeg import ffmpeg_service
 from soundbot.services.sounds import sound_service
@@ -105,6 +106,11 @@ class CommitDraftBody(BaseModel):
     name: str
     start: Optional[float] = None
     end: Optional[float] = None
+
+    @field_validator("start", "end")
+    @classmethod
+    def canonicalize_boundary(cls, value: Optional[float]) -> Optional[float]:
+        return canonicalize_trim_timestamp(value)
 
 
 @router.post("")

@@ -37,6 +37,35 @@ test("draft full-span selection maps timestamps to null exactly", () => {
   );
 });
 
+for (const start of [1.0408340855860843e-16, -1.0408340855860843e-16]) {
+  test(`draft full-span selection canonicalizes near-zero start ${start}`, () => {
+    assert.deepEqual(
+      buildDraftCommitPayload("airhorn", {
+        duration: 28,
+        start,
+        end: 28,
+      }),
+      { name: "airhorn", start: null, end: null }
+    );
+  });
+
+  test(`trim payload canonicalizes near-zero start ${start}`, () => {
+    assert.deepEqual(
+      buildTrimPayload({ duration: 28, start, end: 3.875 }),
+      { start: 0, end: 3.875 }
+    );
+  });
+}
+
+for (const end of [1.0408340855860843e-16, -1.0408340855860843e-16]) {
+  test(`trim payload canonicalizes near-zero end ${end}`, () => {
+    assert.deepEqual(
+      buildTrimPayload({ duration: 28, start: 0, end }),
+      { start: 0, end: 0 }
+    );
+  });
+}
+
 test("draft partial selection preserves subsecond boundaries", () => {
   assert.deepEqual(buildDraftCommitPayload("airhorn", baseState), {
     name: "airhorn",

@@ -3,7 +3,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from soundbot.models.sounds import canonicalize_trim_timestamp
 
 from soundbot.services.clips import ClipError, ensure_clip
 from soundbot.services.ffmpeg import ffmpeg_service
@@ -33,10 +34,20 @@ class AddSoundBody(BaseModel):
     start: Optional[float] = None
     end: Optional[float] = None
 
+    @field_validator("start", "end")
+    @classmethod
+    def canonicalize_boundary(cls, value: Optional[float]) -> Optional[float]:
+        return canonicalize_trim_timestamp(value)
+
 
 class TrimBody(BaseModel):
     start: Optional[float] = None
     end: Optional[float] = None
+
+    @field_validator("start", "end")
+    @classmethod
+    def canonicalize_boundary(cls, value: Optional[float]) -> Optional[float]:
+        return canonicalize_trim_timestamp(value)
 
 
 class PatchBody(BaseModel):

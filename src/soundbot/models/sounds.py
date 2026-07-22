@@ -1,10 +1,25 @@
+import math
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 RandomMode = Literal["together", "separate"]
+
+
+TRIM_TIME_ZERO_EPSILON = 1e-6
+
+
+def canonicalize_trim_timestamp(value: Optional[float]) -> Optional[float]:
+    """Collapse unrepresentable boundary noise while preserving real trim precision."""
+    if value is None:
+        return None
+    if not math.isfinite(value):
+        raise ValueError("Trim timestamps must be finite")
+    if abs(value) <= TRIM_TIME_ZERO_EPSILON:
+        return 0.0
+    return value
 
 
 class Timestamps(BaseModel):
@@ -12,6 +27,11 @@ class Timestamps(BaseModel):
 
     start: Optional[float] = None
     end: Optional[float] = None
+
+    @field_validator("start", "end")
+    @classmethod
+    def canonicalize_boundary(cls, value: Optional[float]) -> Optional[float]:
+        return canonicalize_trim_timestamp(value)
 
 
 class Stats(BaseModel):

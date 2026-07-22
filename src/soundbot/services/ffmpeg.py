@@ -5,14 +5,43 @@ import json
 import logging
 import tempfile
 import time
+from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel
 
 from soundbot.core.settings import settings
+from soundbot.models.sounds import canonicalize_trim_timestamp
 
 logger = logging.getLogger(__name__)
+
+
+def format_ffmpeg_timestamp(value: float) -> str:
+    """Serialize a finite media timestamp without exponent notation."""
+    normalized = canonicalize_trim_timestamp(value)
+    if normalized is None:
+        raise ValueError("FFmpeg timestamps cannot be null")
+    if normalized == 0:
+        return "0"
+    return format(Decimal(str(normalized)), "f")
+
+
+def _trim_input_args(
+    input_file: Path,
+    start: Optional[float],
+    end: Optional[float],
+) -> list[str]:
+    normalized_start = canonicalize_trim_timestamp(start)
+    normalized_end = canonicalize_trim_timestamp(end)
+    args: list[str] = []
+    if normalized_start is not None:
+        args.extend(["-ss", format_ffmpeg_timestamp(normalized_start)])
+    args.extend(["-i", str(input_file)])
+    if normalized_end is not None:
+        duration = normalized_end - (normalized_start or 0.0)
+        args.extend(["-t", format_ffmpeg_timestamp(duration)])
+    return args
 
 
 class ProbeResult(BaseModel):
@@ -122,18 +151,11 @@ class FFmpegService:
 
         volume_db: dB adjustment applied after normalization (negative = quieter).
         """
-        args = ["ffmpeg", "-y"]
-
-        # Input seeking (faster if before -i)
-        if start is not None:
-            args.extend(["-ss", str(start)])
-
-        args.extend(["-i", str(input_file)])
-
-        # Duration (if end specified)
-        if end is not None:
-            duration = end - (start or 0)
-            args.extend(["-t", str(duration)])
+        try:
+            args = ["ffmpeg", "-y", *_trim_input_args(input_file, start, end)]
+        except ValueError as e:
+            logger.error(f"Invalid audio trim timestamps: {e}")
+            return ProcessResult(success=False, error=str(e))
 
         # Audio filters
         filters = []
@@ -206,18 +228,11 @@ class FFmpegService:
 
         Uses copy codec where possible, but re-encodes around cut points for accuracy.
         """
-        args = ["ffmpeg", "-y"]
-
-        # Input seeking
-        if start is not None:
-            args.extend(["-ss", str(start)])
-
-        args.extend(["-i", str(input_file)])
-
-        # Duration
-        if end is not None:
-            duration = end - (start or 0)
-            args.extend(["-t", str(duration)])
+        try:
+            args = ["ffmpeg", "-y", *_trim_input_args(input_file, start, end)]
+        except ValueError as e:
+            logger.error(f"Invalid video trim timestamps: {e}")
+            return ProcessResult(success=False, error=str(e))
 
         # Copy streams where possible
         args.extend(
@@ -288,17 +303,11 @@ class FFmpegService:
             ):
                 remux = True
 
-        args = ["ffmpeg", "-y"]
-
-        # Input seeking (faster if before -i)
-        if start is not None:
-            args.extend(["-ss", str(start)])
-
-        args.extend(["-i", str(input_file)])
-
-        if end is not None:
-            duration = end - (start or 0)
-            args.extend(["-t", str(duration)])
+        try:
+            args = ["ffmpeg", "-y", *_trim_input_args(input_file, start, end)]
+        except ValueError as e:
+            logger.error(f"Invalid browser-video trim timestamps: {e}")
+            return ProcessResult(success=False, error=str(e))
 
         if remux:
             args.extend(["-c:v", "copy"])
@@ -463,6 +472,7 @@ class FFmpegService:
             ]
 
         try:
+            duration_arg = format_ffmpeg_timestamp(duration)
             output_file.parent.mkdir(parents=True, exist_ok=True)
             start_time = time.monotonic()
             logger.info(f"Making waveform video: {audio_file} -> {output_file}")
@@ -496,7 +506,7 @@ class FFmpegService:
                         "-r",
                         "30",
                         "-t",
-                        f"{duration:.3f}",
+                        duration_arg,
                         "-i",
                         str(unplayed_png),
                         "-loop",
@@ -504,7 +514,7 @@ class FFmpegService:
                         "-r",
                         "30",
                         "-t",
-                        f"{duration:.3f}",
+                        duration_arg,
                         "-i",
                         str(played_png),
                         "-i",
@@ -513,14 +523,14 @@ class FFmpegService:
                         # Static layers; only the reveal boundary moves
                         (
                             "[0:v][1:v]xfade=transition=wiperight:"
-                            + f"duration={duration:.3f}:offset=0[v]"
+                            + f"duration={duration_arg}:offset=0[v]"
                         ),
                         "-map",
                         "[v]",
                         "-map",
                         "2:a",
                         "-t",
-                        f"{duration:.3f}",
+                        duration_arg,
                         "-c:v",
                         "libx264",
                         "-preset",

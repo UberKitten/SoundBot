@@ -10,6 +10,7 @@ from typing import Optional
 
 import discord
 
+from soundbot.services.ffmpeg import format_ffmpeg_timestamp
 from soundbot.services.sounds import sound_service
 
 logger = logging.getLogger(__name__)
@@ -273,7 +274,7 @@ class VoiceService:
                 logger.info(f"Resuming playback from {item.seek_position:.1f}s")
                 source = discord.FFmpegOpusAudio(
                     str(item.audio_path),
-                    before_options=f"-ss {item.seek_position:.3f}",
+                    before_options=f"-ss {format_ffmpeg_timestamp(item.seek_position)}",
                 )
             else:
                 source = discord.FFmpegOpusAudio(str(item.audio_path))
