@@ -14,6 +14,11 @@ import { showGroupContextMenu, showGroupContextMenuAt } from "context-menu";
 import { init } from "dom-init";
 import { attachLongPress } from "long-press";
 import {
+  applySoundLiveUpdate,
+  findSoundInSnapshot,
+  soundMatchesFilter,
+} from "sound-live-update";
+import {
   alphaSort,
   cancelBackgroundTasks,
   clearError,
@@ -70,6 +75,7 @@ export class SoundboardApp extends HTMLElement {
   firstRenderCompleted = false;
   unsubscribeWebSocket: (() => void) | null = null;
   unsubscribeGroupWebSocket: (() => void) | null = null;
+  soundUpdateGenerations: Map<string, number> = new Map();
   groupShuffleBags: Map<string, string[]> = new Map();
   /** Set of canonical sound names that are members of any group. */
   groupMembers: Set<string> = new Set();
@@ -125,63 +131,43 @@ export class SoundboardApp extends HTMLElement {
   }
 
   /**
-   * Handle real-time sound update from WebSocket.
-   * Updates the sound's modified timestamp to bust the cache.
+   * Apply a real-time sound update while preserving current UI/playback state.
    */
   handleSoundUpdate(event: SoundUpdateEvent) {
     const soundName = event.sound_name;
-    const newModified = event.modified;
-
-    if (event.action === "delete") {
-      // Remove the sound from our list
-      const index = this.sounds.findIndex((s) => s.name === soundName);
-      if (index !== -1) {
-        this.sounds.splice(index, 1);
-      }
-
-      // Remove the button from the grid
+    const updateRenderedSound = (sound: Sound) => {
       const button = this.grid.querySelector(
         `soundboard-button[sound*='"name":"${soundName}"']`
       ) as HTMLElement | null;
-      if (button) {
-        button.remove();
-      }
-      console.log(`[ws] Removed sound button: ${soundName}`);
-      return;
-    }
+      if (button) button.setAttribute("sound", JSON.stringify(sound));
+    };
 
-    if (event.action === "add") {
-      // For new sounds, fetch the sound data and add it
-      console.log(`[ws] Adding new sound: ${soundName}`);
-      this.fetchSingleSound(soundName)
-        .then((sound) => {
-          if (sound) {
-            this.sounds.push(sound);
-            this.addSoundButton(sound);
-            console.log(`[ws] Added sound button: ${soundName}`);
-          } else {
-            console.warn(`[ws] Could not fetch sound data for: ${soundName}`);
-          }
-        })
-        .catch((e) => {
-          console.error(`[ws] Error adding sound ${soundName}:`, e);
-        });
-      return;
-    }
-
-    // For edit actions, update the modified timestamp
-    const sound = this.sounds.find((s) => s.name === soundName);
-    if (sound) {
-      sound.modified = newModified;
-
-      // Update the button's sound attribute to trigger cache bust
-      const button = this.grid.querySelector(
-        `soundboard-button[sound*='"name":"${soundName}"']`
-      ) as HTMLElement | null;
-      if (button) {
-        button.setAttribute("sound", JSON.stringify(sound));
-      }
-    }
+    return applySoundLiveUpdate(event, {
+      sounds: this.sounds,
+      generations: this.soundUpdateGenerations,
+      fetchSound: (name) => this.fetchSingleSound(name),
+      addRenderedSound: (sound) => this.addSoundButton(sound),
+      updateRenderedSound,
+      removeRenderedSound: (name) => {
+        const button = this.grid.querySelector(
+          `soundboard-button[sound*='"name":"${name}"']`
+        ) as HTMLElement | null;
+        if (button) button.remove();
+      },
+      reapplyFilter: () => this.reapplyCurrentFilter(),
+    })
+      .then((result) => {
+        if (result === "added") {
+          console.log(`[ws] Added sound button: ${soundName}`);
+        } else if (result === "deleted") {
+          console.log(`[ws] Removed sound button: ${soundName}`);
+        } else if (result === "missing") {
+          console.warn(`[ws] Could not fetch sound data for: ${soundName}`);
+        }
+      })
+      .catch((error) => {
+        console.error(`[ws] Error applying ${event.action} for ${soundName}:`, error);
+      });
   }
 
   handleGroupUpdate(event: GroupUpdateEvent) {
@@ -256,10 +242,11 @@ export class SoundboardApp extends HTMLElement {
    */
   async fetchSingleSound(name: string): Promise<Sound | null> {
     try {
-      // Fetch all sounds and find the one we need
-      // This reuses the existing fetchSounds logic which properly parses the response
-      const allSounds = await this.fetchSounds() as Sound[];
-      const sound = allSounds.find((s) => s.name === name);
+      const snapshot = await this.fetchSounds() as {
+        sounds: Sound[];
+        groups: SoundGroup[];
+      };
+      const sound = findSoundInSnapshot(snapshot, name);
       if (sound) {
         return sound;
       }
@@ -346,10 +333,28 @@ export class SoundboardApp extends HTMLElement {
     if (!soundAttr) return false;
 
     const sound = JSON.parse(soundAttr) as Sound;
-    if (getCanonicalString(sound.name).includes(this.filter)) return true;
-    return sound.aliases?.some((alias) =>
-      getCanonicalString(alias)?.includes(this.filter)
-    ) ?? false;
+    return soundMatchesFilter(sound, this.filter, getCanonicalString);
+  }
+
+  reapplyCurrentFilter() {
+    if (!this.filter) return;
+
+    const buttons = Array.from(
+      this.grid.children as HTMLCollectionOf<HTMLElement>
+    );
+    const matchingButtons = buttons.filter((button) =>
+      this.filterSoundButtons(button)
+    );
+    const matchingSet = new Set(matchingButtons);
+    buttons.forEach((button) =>
+      button.classList.toggle("no-display", !matchingSet.has(button))
+    );
+
+    if (matchingButtons.length > 0) {
+      clearInfo();
+    } else {
+      setInfo(`no sounds match "${this.filter}"`);
+    }
   }
 
   getSortableFromButton(button: HTMLElement): SortableItem | null {
@@ -498,10 +503,7 @@ export class SoundboardApp extends HTMLElement {
             button.setAttribute("sound", JSON.stringify(item.sound));
             button.setAttribute("sort", this.sort ?? "");
             if (this.singlePlay) button.setAttribute("singleplay", "true");
-            if (
-              this.filter &&
-              !getCanonicalString(item.sound.name).includes(this.filter)
-            )
+            if (!this.filterSoundButtons(button))
               button.classList.add("no-display");
             button.dataset.copyText = `${getRandomPrefix()}${item.sound.name}`;
             this.applyMembershipToButton(button, item.sound.name);

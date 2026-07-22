@@ -11,6 +11,7 @@ import {
 import { copy } from "clipboard";
 import { showContextMenu, showContextMenuAt } from "context-menu";
 import { attachLongPress } from "long-press";
+import { mergeSoundRepresentation } from "sound-live-update";
 import { getDisplayDate, scheduleBackgroundTask } from "utils";
 import { notifySoundPlayed, videoPlayerHandlesClick } from "video-popover";
 
@@ -176,8 +177,14 @@ export class SoundboardButton extends HTMLElement {
   ) {
     if (oldValue === newValue) return;
 
-    if (property === "sound")
-      this.sound = newValue ? JSON.parse(newValue) : undefined;
+    if (property === "sound") {
+      const nextSound = newValue ? (JSON.parse(newValue) as Sound) : undefined;
+      if (this.sound && nextSound && this.sound.name === nextSound.name) {
+        mergeSoundRepresentation(this.sound, nextSound);
+      } else {
+        this.sound = nextSound;
+      }
+    }
     if (property === "sort") this.sort = newValue;
     if (property === "singleplay") this.singlePlay = !!newValue;
 
