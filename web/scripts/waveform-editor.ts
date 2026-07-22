@@ -3,8 +3,8 @@
  * (trim-editor.ts) and the draft add-sound editor (draft-editor.ts).
  *
  * Owns the WaveSurfer instance, the single draggable/resizable trim region,
- * the transport buttons, numeric edge inputs with nudges, zoom + volume
- * controls, and the keyboard shortcuts (space / s / e / l / , / .).
+ * the transport buttons, timestamp edge inputs with nudges, zoom + preview
+ * volume controls, and the keyboard shortcuts (space / s / e / l / , / .).
  * Mode-specific chrome — banner, footer buttons, save behavior, dismissal
  * side effects — is injected by the callers.
  */
@@ -14,11 +14,21 @@ import { openModal, ModalController } from "modal";
 import { showToast } from "toast";
 import WaveSurfer from "wavesurfer";
 import RegionsPlugin, { Region } from "wavesurfer-regions";
+import {
+  computeZoomScroll,
+  decideWheelZoom,
+  formatTimestamp,
+  retainPendingZoomFocus,
+  parseTimestamp,
+  WAVEFORM_ZOOM_MAX,
+  WAVEFORM_ZOOM_MIN,
+  WAVEFORM_ZOOM_STEP,
+} from "waveform-controls";
 
 const EDGE_PREVIEW_SECONDS = 1.5;
 export const MIN_REGION_LENGTH = 0.05;
-const VOLUME_MIN = -5;
-const VOLUME_MAX = 3;
+const PREVIEW_VOLUME_MIN = 0;
+const PREVIEW_VOLUME_MAX = 200;
 /** Pointer travel below this (px) between down/up counts as a click, not a drag. */
 const CLICK_MOVE_TOLERANCE = 5;
 /** Playhead within this many seconds of the region end → play the full region. */
@@ -30,25 +40,21 @@ export interface EditorInfo {
   duration: number;
   start: number | null;
   end: number | null;
-  volume_adjust: number;
   source_title: string | null;
   source_url: string | null;
 }
 
-/** Snapshot of the current trim/volume selection. */
+/** Snapshot of the current trim selection. */
 export interface TrimState {
   duration: number;
   start: number;
   end: number;
-  /** volume as an integer notch; dB = notch * 3. */
-  volumeNotch: number;
-  initialVolumeNotch: number;
 }
 
 export interface WaveformEditorCore {
   modal: ModalController;
   getState(): TrimState;
-  /** True when region/volume differ from their initial values (or extraDirty). */
+  /** True when trim bounds differ from their initial values (or extraDirty). */
   isDirty(): boolean;
   isBusy(): boolean;
   /** Toggle the saving/busy state (blocks close + pointer events). */
@@ -73,7 +79,7 @@ export interface WaveformEditorOptions {
   load: () => Promise<EditorInfo>;
   /** Build the mode-specific footer (name field / save / cancel etc.). */
   buildFooter: (core: WaveformEditorCore) => HTMLElement;
-  /** Additional dirty state beyond region/volume (e.g. a typed name). */
+  /** Additional dirty state beyond the region (e.g. a typed name). */
   extraDirty?: () => boolean;
   /** Fires when the editor closes without complete() (cancel/Esc/backdrop). */
   onDismissed?: () => void;
@@ -83,28 +89,14 @@ interface EditorState {
   duration: number;
   start: number;
   end: number;
-  volumeNotch: number;
   initialStart: number;
   initialEnd: number;
-  initialVolumeNotch: number;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
-function fmt(seconds: number): string {
-  if (!Number.isFinite(seconds)) return "0.00";
-  return seconds.toFixed(2);
-}
-
-/** m:ss.t clock format (tenths truncated so 59.99 → 0:59.9, not 1:00.0). */
-function fmtClock(seconds: number): string {
-  const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
-  const m = Math.floor(safe / 60);
-  const tenths = Math.floor((safe - m * 60) * 10) / 10;
-  return `${m}:${tenths < 10 ? "0" : ""}${tenths.toFixed(1)}`;
-}
 
 function svgIcon(paths: string): string {
   return `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
@@ -135,21 +127,25 @@ export function openWaveformEditor(
   // True once the regions plugin reports a drag/resize during the current
   // pointer press — used to tell region drags apart from plain clicks.
   let regionMovedDuringPointer = false;
+  // Preview gain is deliberately ephemeral: it is not part of trim state,
+  // dirty checks, reload metadata, or save requests.
+  let previewVolumePercent = 100;
+  let interactionCleanup: (() => void) | null = null;
+  let zoomRaf = 0;
+  let pendingZoomFocus: { focalTime: number; focalViewportX: number } | null =
+    null;
 
   const state: EditorState = {
     duration: 0,
     start: 0,
     end: 0,
-    volumeNotch: 0,
     initialStart: 0,
     initialEnd: 0,
-    initialVolumeNotch: 0,
   };
 
   const isDirty = (): boolean =>
     state.start !== state.initialStart ||
     state.end !== state.initialEnd ||
-    state.volumeNotch !== state.initialVolumeNotch ||
     (opts.extraDirty?.() ?? false);
 
   const modal: ModalController = openModal({
@@ -232,25 +228,28 @@ export function openWaveformEditor(
   let playheadReadout: HTMLSpanElement | null = null;
   let regionReadout: HTMLSpanElement | null = null;
 
-  /** mm:ss.t for sources ≥60s, plain seconds below (matches the hover tip). */
-  function fmtReadout(seconds: number): string {
-    if (state.duration >= 60) return fmtClock(seconds);
-    return `${Math.max(0, seconds).toFixed(2)}s`;
-  }
 
   function updatePlayheadReadout(t: number): void {
-    if (playheadReadout) playheadReadout.textContent = `⏱ ${fmtReadout(t)}`;
+    if (playheadReadout) {
+      playheadReadout.textContent = `⏱ ${formatTimestamp(Math.max(0, t))}`;
+    }
   }
 
   function updateRegionReadout(): void {
     if (!regionReadout) return;
-    const len = Math.max(0, state.end - state.start);
-    const text =
-      len >= 60 ? fmtClock(len) : `${Math.round(len * 100) / 100}s`;
-    regionReadout.textContent = `region ${text}`;
+    regionReadout.textContent = `region ${formatTimestamp(
+      Math.max(0, state.end - state.start)
+    )}`;
   }
 
   function destroyWavesurfer(): void {
+    interactionCleanup?.();
+    interactionCleanup = null;
+    if (zoomRaf) {
+      cancelAnimationFrame(zoomRaf);
+      zoomRaf = 0;
+      pendingZoomFocus = null;
+    }
     if (wavesurfer) {
       try {
         wavesurfer.destroy();
@@ -276,8 +275,8 @@ export function openWaveformEditor(
   }
 
   function syncInputs(): void {
-    if (startInput) startInput.value = fmt(state.start);
-    if (endInput) endInput.value = fmt(state.end);
+    if (startInput) startInput.value = formatTimestamp(state.start);
+    if (endInput) endInput.value = formatTimestamp(state.end);
     updateRegionReadout();
   }
 
@@ -552,7 +551,7 @@ export function openWaveformEditor(
         const rect = waveContainer.getBoundingClientRect();
         // Keep the (centered) label inside the container at the edges.
         const x = clamp(hoverX - rect.left, 28, Math.max(28, rect.width - 28));
-        tooltip.textContent = fmtReadout(t);
+        tooltip.textContent = formatTimestamp(Math.max(0, t));
         tooltip.style.left = `${x}px`;
         tooltip.hidden = false;
       });
@@ -613,7 +612,7 @@ export function openWaveformEditor(
     modal.body.appendChild(transport);
     updatePlayButton();
 
-    // -- edge editors (start / end) with numeric input + nudges --
+    // -- edge editors (start / end) with timestamp text inputs + nudges --
     const edges = document.createElement("div");
     edges.className = "trim-edges";
 
@@ -629,21 +628,19 @@ export function openWaveformEditor(
       inputRow.className = "trim-edge-input";
 
       const input = document.createElement("input");
-      input.type = "number";
-      input.step = "0.01";
-      input.min = "0";
-      input.max = fmt(state.duration);
+      input.type = "text";
       input.inputMode = "decimal";
       input.className = "trim-number";
-      input.setAttribute("aria-label", `${label} (seconds)`);
+      input.placeholder = "HH:MM:SS";
+      input.setAttribute("aria-label", `${label} timestamp`);
 
       const unit = document.createElement("span");
       unit.className = "trim-unit";
-      unit.textContent = "s";
+      unit.textContent = "HH:MM:SS";
 
       const commit = () => {
-        const parsed = parseFloat(input.value);
-        if (Number.isNaN(parsed)) {
+        const parsed = parseTimestamp(input.value);
+        if (parsed === null) {
           syncInputs();
           return;
         }
@@ -681,7 +678,7 @@ export function openWaveformEditor(
     edges.appendChild(makeEdge("End", "end"));
     modal.body.appendChild(edges);
 
-    // -- zoom + volume row --
+    // -- zoom + preview-volume row --
     const tools = document.createElement("div");
     tools.className = "trim-tools";
 
@@ -690,14 +687,26 @@ export function openWaveformEditor(
     zoomWrap.textContent = "Zoom";
     const zoom = document.createElement("input");
     zoom.type = "range";
-    zoom.min = "0";
-    zoom.max = "300";
-    zoom.value = "0";
-    zoom.setAttribute("aria-label", "Zoom");
+    zoom.min = String(WAVEFORM_ZOOM_MIN);
+    zoom.max = String(WAVEFORM_ZOOM_MAX);
+    zoom.step = String(WAVEFORM_ZOOM_STEP);
+    zoom.value = String(WAVEFORM_ZOOM_MIN);
+    zoom.setAttribute("aria-label", "Waveform zoom");
+    let currentZoom = WAVEFORM_ZOOM_MIN;
     zoom.addEventListener("input", () => {
-      const pxPerSec = parseInt(zoom.value, 10) || 0;
+      if (zoomRaf) {
+        cancelAnimationFrame(zoomRaf);
+        zoomRaf = 0;
+        pendingZoomFocus = null;
+      }
+      currentZoom = clamp(
+        Number(zoom.value),
+        WAVEFORM_ZOOM_MIN,
+        WAVEFORM_ZOOM_MAX
+      );
+      zoom.value = String(currentZoom);
       try {
-        wavesurfer?.zoom(pxPerSec);
+        wavesurfer?.zoom(currentZoom);
       } catch {
         /* zoom before ready — ignore */
       }
@@ -706,26 +715,30 @@ export function openWaveformEditor(
 
     const volWrap = document.createElement("label");
     volWrap.className = "trim-volume";
-    volWrap.textContent = "Volume";
-    const vol = document.createElement("select");
-    vol.className = "trim-volume-select";
-    vol.setAttribute("aria-label", "Volume adjustment");
-    for (let notch = VOLUME_MAX; notch >= VOLUME_MIN; notch--) {
-      const opt = document.createElement("option");
-      opt.value = String(notch);
-      const db = notch * 3;
-      opt.textContent = notch === 0 ? "0 dB" : `${db > 0 ? "+" : ""}${db} dB`;
-      vol.appendChild(opt);
-    }
-    vol.value = String(state.volumeNotch);
-    vol.addEventListener("change", () => {
-      state.volumeNotch = clamp(
-        parseInt(vol.value, 10) || 0,
-        VOLUME_MIN,
-        VOLUME_MAX
+    volWrap.textContent = "Preview volume";
+    volWrap.title = "Playback only; does not change the saved sound volume";
+    const vol = document.createElement("input");
+    vol.type = "range";
+    vol.className = "trim-volume-range";
+    vol.min = String(PREVIEW_VOLUME_MIN);
+    vol.max = String(PREVIEW_VOLUME_MAX);
+    vol.step = "1";
+    vol.value = String(previewVolumePercent);
+    vol.setAttribute("aria-label", "Preview volume percentage");
+    const volValue = document.createElement("output");
+    volValue.textContent = `${previewVolumePercent}%`;
+    vol.addEventListener("input", () => {
+      previewVolumePercent = clamp(
+        Number(vol.value),
+        PREVIEW_VOLUME_MIN,
+        PREVIEW_VOLUME_MAX
       );
+      vol.value = String(previewVolumePercent);
+      volValue.textContent = `${previewVolumePercent}%`;
+      wavesurfer?.setVolume(previewVolumePercent / 100);
     });
     volWrap.appendChild(vol);
+    volWrap.appendChild(volValue);
 
     tools.appendChild(zoomWrap);
     tools.appendChild(volWrap);
@@ -761,6 +774,82 @@ export function openWaveformEditor(
       autoScroll: true,
       url: info.audio_url,
     });
+    // WaveSurfer owns the WebAudio gain path; using its player volume avoids
+    // creating extra AudioContexts/GainNodes and survives editor reloads.
+    ws.setVolume(previewVolumePercent / 100);
+
+    const onWaveformWheel = (event: WheelEvent) => {
+      const decision = decideWheelZoom({
+        currentZoom,
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+      });
+      if (!decision.handled || state.duration <= 0) return;
+
+      const viewportRect = waveContainer.getBoundingClientRect();
+      const viewportWidth = viewportRect.width;
+      if (viewportWidth <= 0) return;
+
+      const pointerTime = timeAtClientPoint(event.clientX, event.clientY);
+      const focalTime =
+        pointerTime ?? clamp(ws.getCurrentTime(), 0, state.duration);
+      const currentContentWidth = Math.max(
+        viewportWidth,
+        state.duration * currentZoom
+      );
+      const focalViewportX =
+        pointerTime === null
+          ? clamp(
+              (focalTime / state.duration) * currentContentWidth -
+                ws.getScroll(),
+              0,
+              viewportWidth
+            )
+          : clamp(event.clientX - viewportRect.left, 0, viewportWidth);
+
+      const zoomFocus = retainPendingZoomFocus(pendingZoomFocus, {
+        focalTime,
+        focalViewportX,
+      });
+      try {
+        ws.zoom(decision.nextZoom);
+      } catch {
+        return;
+      }
+
+      currentZoom = decision.nextZoom;
+      zoom.value = String(currentZoom);
+      event.preventDefault();
+
+      if (zoomRaf) cancelAnimationFrame(zoomRaf);
+      pendingZoomFocus = zoomFocus;
+      zoomRaf = requestAnimationFrame(() => {
+        zoomRaf = 0;
+        const focus = pendingZoomFocus;
+        pendingZoomFocus = null;
+        if (!focus || destroyed || wavesurfer !== ws) return;
+        ws.setScroll(
+          computeZoomScroll({
+            ...focus,
+            duration: state.duration,
+            nextZoom: currentZoom,
+            viewportWidth,
+          })
+        );
+      });
+    };
+    waveContainer.addEventListener("wheel", onWaveformWheel, {
+      passive: false,
+    });
+    interactionCleanup = () => {
+      waveContainer.removeEventListener("wheel", onWaveformWheel);
+      if (tooltipRaf) {
+        cancelAnimationFrame(tooltipRaf);
+        tooltipRaf = 0;
+      }
+    };
     wavesurfer = ws;
     regions = ws.registerPlugin(RegionsPlugin.create());
 
@@ -775,6 +864,14 @@ export function openWaveformEditor(
 
     ws.on("ready", (duration: number) => {
       if (destroyed) return;
+      ws.setVolume(previewVolumePercent / 100);
+      if (currentZoom !== WAVEFORM_ZOOM_MIN) {
+        try {
+          ws.zoom(currentZoom);
+        } catch {
+          /* decoded data was not available after all — keep the fit view */
+        }
+      }
       state.duration = duration || info.duration || 0;
 
       // Untrimmed sounds / fresh drafts arrive as start/end null → full span.
@@ -788,8 +885,6 @@ export function openWaveformEditor(
       state.initialStart = initStart;
       state.initialEnd = initEnd;
 
-      if (startInput) startInput.max = fmt(state.duration);
-      if (endInput) endInput.max = fmt(state.duration);
 
       const created = regions?.addRegion({
         id: "trim",
@@ -833,8 +928,6 @@ export function openWaveformEditor(
       duration: state.duration,
       start: state.start,
       end: state.end,
-      volumeNotch: state.volumeNotch,
-      initialVolumeNotch: state.initialVolumeNotch,
     }),
     isDirty,
     isBusy: () => busy,
@@ -858,17 +951,11 @@ export function openWaveformEditor(
     handleError,
   };
 
-  // ---- kick off: fetch info, initialise volume (first load only), build ----
+  // ---- kick off: fetch info and build ----
   opts
     .load()
     .then((info) => {
       if (destroyed) return;
-      state.volumeNotch = clamp(
-        Math.round(info.volume_adjust ?? 0),
-        VOLUME_MIN,
-        VOLUME_MAX
-      );
-      state.initialVolumeNotch = state.volumeNotch;
       buildUI(info);
     })
     .catch((e) => {

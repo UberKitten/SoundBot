@@ -105,7 +105,6 @@ class CommitDraftBody(BaseModel):
     name: str
     start: Optional[float] = None
     end: Optional[float] = None
-    volume_adjust: int = 0
 
 
 @router.post("")
@@ -217,7 +216,6 @@ async def commit_draft(body: CommitDraftBody, draft_id: str, user: AdminUser = D
         source_title=info.title,
         start=body.start,
         end=body.end,
-        volume_adjust=body.volume_adjust,
         added_by=user.username,
     )
     if not result.success:

@@ -6,6 +6,7 @@
 
 import { stopAllButtonAudio, stopMainAudio } from "audio";
 import { fetchWaveform, redownloadSound, saveTrim } from "admin-api";
+import { buildTrimPayload } from "editor-payloads";
 import { showToast } from "toast";
 import {
   MIN_REGION_LENGTH,
@@ -112,16 +113,7 @@ function doSave(
   const original = btn.textContent;
   btn.textContent = "Saving…";
 
-  // Only send volume_adjust when it actually changed.
-  const payload = {
-    start: state.start,
-    end: state.end,
-    ...(state.volumeNotch !== state.initialVolumeNotch
-      ? { volume_adjust: state.volumeNotch }
-      : {}),
-  };
-
-  saveTrim(name, payload)
+  saveTrim(name, buildTrimPayload(state))
     .then(() => {
       core.complete();
       showToast("Trim saved.", "success");

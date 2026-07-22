@@ -36,13 +36,11 @@ export interface AddSoundRequest {
   url: string;
   start?: number | null;
   end?: number | null;
-  volume_adjust?: number;
 }
 
 export interface TrimRequest {
   start: number | null;
   end: number | null;
-  volume_adjust?: number | null;
 }
 
 export interface PatchSoundRequest {
@@ -63,7 +61,6 @@ export interface CommitDraftRequest {
   name: string;
   start: number | null;
   end: number | null;
-  volume_adjust: number;
 }
 
 /** An error carrying the server's HTTP status and a human-readable message. */

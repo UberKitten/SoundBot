@@ -32,13 +32,11 @@ class AddSoundBody(BaseModel):
     url: str
     start: Optional[float] = None
     end: Optional[float] = None
-    volume_adjust: int = 0
 
 
 class TrimBody(BaseModel):
     start: Optional[float] = None
     end: Optional[float] = None
-    volume_adjust: Optional[int] = None
 
 
 class PatchBody(BaseModel):
@@ -54,7 +52,6 @@ async def add_sound(body: AddSoundBody, user: AdminUser = Depends(require_admin)
         url=body.url,
         start=body.start,
         end=body.end,
-        volume_adjust=body.volume_adjust,
         added_by=user.username,
     )
     if not result.success:
@@ -158,7 +155,7 @@ async def get_clip_video(name: str):
 
 @router.put("/sounds/{name}/trim")
 async def trim_sound(name: str, body: TrimBody):
-    """Update trim timestamps (and optionally volume) with a single re-encode."""
+    """Update trim timestamps and regenerate the processed audio."""
     sound = sound_service.get_sound(name)
     if not sound:
         raise HTTPException(status_code=404, detail=f"Sound '{name}' not found")
@@ -167,12 +164,6 @@ async def trim_sound(name: str, body: TrimBody):
     assert resolved is not None
     canonical = resolved[0]
 
-    # If volume changed, mutate volume_adjust BEFORE edit_timestamps so the
-    # single re-encode inside edit_timestamps (which reads sound.volume_db)
-    # applies the new volume — avoids a second encode pass.
-    if body.volume_adjust is not None:
-        clamped = max(-5, min(3, body.volume_adjust))
-        sound.volume_adjust = clamped
 
     result = await sound_service.edit_timestamps(
         canonical, start=body.start, end=body.end

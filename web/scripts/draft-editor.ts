@@ -7,6 +7,7 @@
  */
 
 import { ApiError, DraftInfo, commitDraft, discardDraft } from "admin-api";
+import { buildDraftCommitPayload } from "editor-payloads";
 import { stopAllButtonAudio, stopMainAudio } from "audio";
 import { showToast } from "toast";
 import {
@@ -51,7 +52,6 @@ export function openDraftEditor(draft: DraftInfo, onSaved?: () => void): void {
         duration: draft.duration,
         start: null, // region defaults to the full length
         end: null,
-        volume_adjust: 0,
         source_title: draft.source_title,
         source_url: draft.source_url,
       }),
@@ -173,16 +173,10 @@ export function openDraftEditor(draft: DraftInfo, onSaved?: () => void): void {
       cancelBtn.disabled = true;
       saveBtn.textContent = "Saving…";
 
-      // Full span selected → no trim (null/null), matching untrimmed sounds.
-      const fullSpan =
-        state.start <= 0 && state.duration - state.end < 0.001;
-
-      commitDraft(draft.draft_id, {
-        name,
-        start: fullSpan ? null : state.start,
-        end: fullSpan ? null : state.end,
-        volume_adjust: state.volumeNotch,
-      })
+      commitDraft(
+        draft.draft_id,
+        buildDraftCommitPayload(name, state)
+      )
         .then((result) => {
           committed = true;
           c.complete();

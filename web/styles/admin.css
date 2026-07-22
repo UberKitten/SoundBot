@@ -516,15 +516,19 @@ soundboard-button,
   min-width: 6rem;
 }
 
-.trim-volume-select {
-  height: var(--control-height);
-  padding: 0 calc(var(--standard-padding) * 0.5);
-  border: 1px solid var(--border-color);
-  border-radius: var(--corner-rounding);
-  background-color: var(--alt-color);
-  color: white;
-  font-size: inherit;
-  font-family: inherit;
+.trim-volume {
+  flex: 1 1 12rem;
+}
+
+.trim-volume-range {
+  flex: 1;
+  min-width: 6rem;
+}
+
+.trim-volume output {
+  min-width: 3.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .trim-footer {

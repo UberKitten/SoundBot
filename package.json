@@ -7,6 +7,7 @@
   "scripts": {
     "build": "cd web && gulp",
     "dev": "cd web && gulp watch",
+    "test:frontend": "node --test web/tests/*.test.mjs",
     "test:frontend-live-updates": "node --test web/tests/sound-live-update.test.mjs"
   },
   "devDependencies": {

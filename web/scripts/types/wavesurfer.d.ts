@@ -73,6 +73,12 @@ declare module "wavesurfer" {
      * regardless of zoom/scroll, so x→time is (clientX - rect.left) / rect.width.
      */
     getWrapper(): HTMLElement;
+    /** Visible scroll viewport width, in CSS pixels. */
+    getWidth(): number;
+    /** Current horizontal waveform scroll offset, in CSS pixels. */
+    getScroll(): number;
+    /** Set horizontal waveform scroll offset, in CSS pixels. */
+    setScroll(pixels: number): void;
     /**
      * With backend "WebAudio" this returns the plugin's WebAudioPlayer shim
      * (audio-element-shaped, carries its own `audioContext`), not a real
