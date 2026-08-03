@@ -58,29 +58,46 @@ export interface SoundGroup {
 
 export interface AudioGroup {
   element: EventTarget;
-  source: AudioBufferSourceNode;
+  source: AudioNode;
   gain: GainNode;
 }
 
-interface Voice extends AudioGroup {
+interface BaseVoice extends AudioGroup {
   sound: Sound;
+  stopped: boolean;
+}
+
+interface BufferVoice extends BaseVoice {
+  engine: "decoded-buffer";
+  source: AudioBufferSourceNode;
   cacheKey: string;
   buffer: AudioBuffer;
   startedAt: number;
   duration: number;
-  stopped: boolean;
 }
+
+interface MediaVoice extends BaseVoice {
+  engine: "media-element";
+  source: MediaElementAudioSourceNode;
+  media: HTMLAudioElement;
+}
+
+type Voice = BufferVoice | MediaVoice;
 
 interface MainRequest {
   generation: number;
   sound: Sound;
   cacheKey: string;
+  contextReady: Promise<void>;
+  mediaStarted: boolean;
 }
 
 interface ButtonRequest {
   sound: Sound;
   cacheKey: string;
   element: EventTarget;
+  contextReady: Promise<void>;
+  mediaStarted: boolean;
   cancelled: boolean;
 }
 
@@ -89,6 +106,18 @@ interface DecodedAudio {
   bytes: number;
   pins: number;
 }
+
+function shouldUseMediaElementEngine(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return (
+    /iP(?:hone|ad|od)/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+const preferredPlaybackEngine = shouldUseMediaElementEngine()
+  ? "media-element"
+  : "decoded-buffer";
 
 /**
  * Sets the soundboard volume.
@@ -221,8 +250,23 @@ function recordWebPlay(sound: Sound) {
 
 function getAudioContext(): AudioContext {
   if (!audioCtx) audioCtx = new AudioContext();
-  if (audioCtx.state === "suspended") void audioCtx.resume().catch(() => {});
   return audioCtx;
+}
+
+function unlockAudioContext(): Promise<void> {
+  const ctx = getAudioContext();
+  if (ctx.state === "running") return Promise.resolve();
+  return ctx.resume().then(() => {
+    if (ctx.state !== "running") {
+      throw new Error("AudioContext did not enter the running state");
+    }
+  });
+}
+
+function beginAudioContextUnlock(): Promise<void> {
+  const contextReady = unlockAudioContext();
+  void contextReady.catch(() => {});
+  return contextReady;
 }
 
 function decodedAudioBytes(buffer: AudioBuffer): number {
@@ -336,12 +380,12 @@ function releaseDecodedAudio(cacheKey: string, buffer: AudioBuffer): void {
   if (active.pins === 0) activeDecodedAudio.delete(cacheKey);
 }
 
-function createVoice(
+function createBufferVoice(
   sound: Sound,
   cacheKey: string,
   buffer: AudioBuffer,
   element: EventTarget
-): Voice {
+): BufferVoice {
   const ctx = getAudioContext();
   const source = ctx.createBufferSource();
   const gain = ctx.createGain();
@@ -352,6 +396,7 @@ function createVoice(
   pinDecodedAudio(cacheKey, buffer);
 
   return {
+    engine: "decoded-buffer",
     element,
     source,
     gain,
@@ -364,18 +409,60 @@ function createVoice(
   };
 }
 
+function createMediaVoice(
+  sound: Sound,
+  cacheKey: string,
+  element: EventTarget
+): MediaVoice {
+  const ctx = getAudioContext();
+  const media = document.createElement("audio");
+  const source = ctx.createMediaElementSource(media);
+  const gain = ctx.createGain();
+  media.preload = "auto";
+  media.src = cacheKey;
+  gain.gain.value = volume;
+  source.connect(gain);
+  gain.connect(ctx.destination);
+
+  return {
+    engine: "media-element",
+    element,
+    source,
+    gain,
+    sound,
+    media,
+    stopped: false,
+  };
+}
+
 function disconnectVoice(voice: Voice): void {
   if (voice.stopped) return;
   voice.stopped = true;
-  voice.source.onended = null;
-  try {
-    voice.source.stop();
-  } catch {
-    // A naturally ended one-shot source cannot be stopped again.
+
+  if (voice.engine === "decoded-buffer") {
+    voice.source.onended = null;
+    try {
+      voice.source.stop();
+    } catch {
+      // A naturally ended one-shot source cannot be stopped again.
+    }
+    releaseDecodedAudio(voice.cacheKey, voice.buffer);
+  } else {
+    voice.media.onended = null;
+    voice.media.onerror = null;
+    voice.media.pause();
+    voice.media.removeAttribute("src");
+    voice.media.load();
   }
+
   voice.source.disconnect();
   voice.gain.disconnect();
-  releaseDecodedAudio(voice.cacheKey, voice.buffer);
+}
+
+function addButtonVoice(voice: Voice): void {
+  const voices = buttonAudio.get(voice.sound);
+  if (voices) voices.push(voice);
+  else buttonAudio.set(voice.sound, [voice]);
 }
 
 function removeButtonVoice(voice: Voice): void {
@@ -386,49 +473,80 @@ function removeButtonVoice(voice: Voice): void {
   if (voices.length === 0) buttonAudio.delete(voice.sound);
 }
 
-async function startButtonAudio(request: ButtonRequest): Promise<void> {
-  let buffer: AudioBuffer;
+function finishButtonVoice(voice: Voice, eventType: "pause" | "ended"): void {
+  if (voice.stopped) return;
+  removeButtonVoice(voice);
+  disconnectVoice(voice);
+  dispatchTerminalButtonEvent(voice.element, eventType);
+}
+
+async function startMediaButtonAudio(request: ButtonRequest): Promise<void> {
+  if (request.cancelled || request.mediaStarted) return;
+  request.mediaStarted = true;
+
+  let voice: MediaVoice;
   try {
-    buffer = await getDecodedAudio(request.cacheKey);
+    voice = createMediaVoice(request.sound, request.cacheKey, request.element);
+    pendingButtonAudio.delete(request);
+    addButtonVoice(voice);
+    voice.media.onended = () => finishButtonVoice(voice, "ended");
+    voice.media.onerror = () => finishButtonVoice(voice, "pause");
+    const mediaStarted = voice.media.play();
+    await Promise.all([request.contextReady, mediaStarted]);
   } catch {
+    pendingButtonAudio.delete(request);
+    if (typeof voice! !== "undefined") {
+      removeButtonVoice(voice);
+      disconnectVoice(voice);
+    }
     if (!request.cancelled) {
-      pendingButtonAudio.delete(request);
       dispatchTerminalButtonEvent(request.element, "pause");
     }
     return;
   }
 
+  if (!request.cancelled && !voice.stopped) {
+    dispatchPlaybackEvent(voice.element, "play");
+  }
+}
+
+async function startButtonAudio(request: ButtonRequest): Promise<void> {
+  let buffer: AudioBuffer;
+  try {
+    buffer = await getDecodedAudio(request.cacheKey);
+  } catch {
+    if (!request.cancelled) void startMediaButtonAudio(request);
+    return;
+  }
+
+  if (request.cancelled) return;
+  try {
+    await request.contextReady;
+  } catch {
+    pendingButtonAudio.delete(request);
+    dispatchTerminalButtonEvent(request.element, "pause");
+    return;
+  }
   if (request.cancelled) return;
   pendingButtonAudio.delete(request);
 
-  let voice: Voice;
+  let voice: BufferVoice;
   try {
-    voice = createVoice(
+    voice = createBufferVoice(
       request.sound,
       request.cacheKey,
       buffer,
       request.element
     );
-    const voices = buttonAudio.get(request.sound);
-    if (voices) voices.push(voice);
-    else buttonAudio.set(request.sound, [voice]);
-
-    voice.source.onended = () => {
-      if (voice.stopped) return;
-      voice.stopped = true;
-      voice.source.disconnect();
-      voice.gain.disconnect();
-      releaseDecodedAudio(voice.cacheKey, voice.buffer);
-      removeButtonVoice(voice);
-      dispatchTerminalButtonEvent(voice.element, "ended");
-    };
+    addButtonVoice(voice);
+    voice.source.onended = () => finishButtonVoice(voice, "ended");
     voice.source.start();
   } catch {
     if (typeof voice! !== "undefined") {
       removeButtonVoice(voice);
       disconnectVoice(voice);
     }
-    dispatchTerminalButtonEvent(request.element, "pause");
+    void startMediaButtonAudio(request);
     return;
   }
 
@@ -439,17 +557,22 @@ export function playButtonAudio(sound: Sound, updateCb: ChangeListener) {
   const soundPath = getSoundPath(sound);
   if (!soundPath) return;
 
-  getAudioContext();
   const request: ButtonRequest = {
     sound,
     cacheKey: soundPath,
     element: new EventTarget(),
+    contextReady: beginAudioContextUnlock(),
+    mediaStarted: false,
     cancelled: false,
   };
   attachPlaybackChangeListener(request.element, updateCb);
   pendingButtonAudio.add(request);
   recordWebPlay(sound);
-  void startButtonAudio(request);
+  if (preferredPlaybackEngine === "media-element") {
+    void startMediaButtonAudio(request);
+  } else {
+    void startButtonAudio(request);
+  }
 }
 
 function stopMainVoice(voice: Voice, eventType: "pause" | "ended"): void {
@@ -474,36 +597,90 @@ function cancelCurrentMainAudio(): boolean {
   return hadPending;
 }
 
+function failMainRequest(request: MainRequest): void {
+  if (mainGeneration !== request.generation) return;
+  if (mainPending === request) mainPending = null;
+  mainSound = null;
+  dispatchPlaybackEvent(mainAudioEvents, "pause");
+}
+
+async function startMediaMainAudio(request: MainRequest): Promise<void> {
+  if (
+    request.mediaStarted ||
+    mainGeneration !== request.generation ||
+    mainPending !== request
+  )
+    return;
+  request.mediaStarted = true;
+
+  let voice: MediaVoice;
+  try {
+    voice = createMediaVoice(request.sound, request.cacheKey, mainAudioEvents);
+    mainVoice = voice;
+    mainPending = null;
+    mainSound = request.sound;
+    voice.media.onended = () => stopMainVoice(voice, "ended");
+    voice.media.onerror = () => stopMainVoice(voice, "pause");
+    const mediaStarted = voice.media.play();
+    await Promise.all([request.contextReady, mediaStarted]);
+  } catch {
+    if (typeof voice! !== "undefined" && mainVoice === voice) {
+      stopMainVoice(voice, "pause");
+    } else {
+      failMainRequest(request);
+    }
+    return;
+  }
+
+  if (
+    mainGeneration === request.generation &&
+    mainVoice === voice &&
+    !voice.stopped
+  ) {
+    dispatchPlaybackEvent(mainAudioEvents, "play");
+  }
+}
+
 async function startMainAudio(request: MainRequest): Promise<void> {
   let buffer: AudioBuffer;
   try {
     buffer = await getDecodedAudio(request.cacheKey);
   } catch {
-    if (mainGeneration === request.generation && mainPending === request) {
-      mainPending = null;
-      mainSound = null;
-      dispatchPlaybackEvent(mainAudioEvents, "pause");
-    }
+    void startMediaMainAudio(request);
     return;
   }
 
   if (mainGeneration !== request.generation || mainPending !== request) return;
-
-  let voice: Voice;
   try {
-    voice = createVoice(request.sound, request.cacheKey, buffer, mainAudioEvents);
+    await request.contextReady;
+  } catch {
+    failMainRequest(request);
+    return;
+  }
+  if (mainGeneration !== request.generation || mainPending !== request) return;
+
+  let voice: BufferVoice;
+  try {
+    voice = createBufferVoice(
+      request.sound,
+      request.cacheKey,
+      buffer,
+      mainAudioEvents
+    );
     mainVoice = voice;
     mainPending = null;
     mainSound = request.sound;
     voice.source.onended = () => stopMainVoice(voice, "ended");
     voice.source.start();
   } catch {
-    if (typeof voice! !== "undefined") disconnectVoice(voice);
+    if (typeof voice! !== "undefined") {
+      if (mainVoice === voice) mainVoice = null;
+      disconnectVoice(voice);
+    }
     if (mainGeneration === request.generation) {
-      mainVoice = null;
-      mainPending = null;
-      mainSound = null;
-      dispatchPlaybackEvent(mainAudioEvents, "pause");
+      mainPending = request;
+      mainSound = request.sound;
+      void startMediaMainAudio(request);
     }
     return;
   }
@@ -515,18 +692,23 @@ export function playMainAudio(sound: Sound) {
   const soundPath = getSoundPath(sound);
   if (!soundPath) return;
 
-  getAudioContext();
   mainGeneration += 1;
   cancelCurrentMainAudio();
   const request: MainRequest = {
     generation: mainGeneration,
     sound,
     cacheKey: soundPath,
+    contextReady: beginAudioContextUnlock(),
+    mediaStarted: false,
   };
   mainPending = request;
   mainSound = sound;
   recordWebPlay(sound);
-  void startMainAudio(request);
+  if (preferredPlaybackEngine === "media-element") {
+    void startMediaMainAudio(request);
+  } else {
+    void startMainAudio(request);
+  }
 }
 
 export function getActiveButtonAudioGroups(
@@ -564,10 +746,21 @@ export function isMainAudioActive(sound?: Sound) {
 }
 
 export function getMainAudioProgress(): number {
-  if (!mainVoice || !audioCtx || mainVoice.duration <= 0) return 0;
+  if (!mainVoice) return 0;
+  if (mainVoice.engine === "media-element") {
+    if (!mainVoice.media.duration) return 0;
+    return Math.max(
+      0,
+      Math.min(1, mainVoice.media.currentTime / mainVoice.media.duration)
+    );
+  }
+  if (!audioCtx || mainVoice.duration <= 0) return 0;
   return Math.max(
     0,
-    Math.min(1, (audioCtx.currentTime - mainVoice.startedAt) / mainVoice.duration)
+    Math.min(
+      1,
+      (audioCtx.currentTime - mainVoice.startedAt) / mainVoice.duration
+    )
   );
 }
 
@@ -592,11 +785,7 @@ export function stopAllButtonAudio() {
   pendingButtonAudio.clear();
 
   buttonAudio.forEach((voices) => {
-    voices.slice().forEach((voice) => {
-      removeButtonVoice(voice);
-      disconnectVoice(voice);
-      dispatchTerminalButtonEvent(voice.element, "pause");
-    });
+    voices.slice().forEach((voice) => finishButtonVoice(voice, "pause"));
   });
   buttonAudio.clear();
 }

@@ -83,6 +83,8 @@ async function loadAudioModule(options = {}) {
   const counters = [];
   const audioFetches = [];
   const sources = [];
+  const mediaElements = [];
+  const mediaSources = [];
   const gains = [];
   const contexts = [];
   const encodedBuffers = new Map();
@@ -95,6 +97,10 @@ async function loadAudioModule(options = {}) {
     counters,
     sources,
     gains,
+    mediaElements,
+    mediaSources,
+    resumeCalls: 0,
+    mediaPlayCalls: 0,
     fetchAudio:
       options.fetchAudio ??
       (async (url) => {
@@ -168,10 +174,69 @@ async function loadAudioModule(options = {}) {
     }
   }
 
+  class FakeAudioElement extends EventTarget {
+    constructor() {
+      super();
+      this.src = "";
+      this.preload = "";
+      this.paused = true;
+      this.currentTime = 0;
+      this.duration = options.mediaDuration ?? 10;
+      this.onended = null;
+      this.onerror = null;
+      mediaElements.push(this);
+    }
+
+    play() {
+      scenario.mediaPlayCalls += 1;
+      this.paused = false;
+      if (options.playMedia) return options.playMedia(this, scenario);
+      return Promise.resolve();
+    }
+
+    pause() {
+      this.paused = true;
+    }
+
+    removeAttribute(name) {
+      if (name === "src") this.src = "";
+    }
+
+    load() {}
+
+    finish() {
+      this.paused = true;
+      this.onended?.(new Event("ended"));
+    }
+
+    fail() {
+      this.paused = true;
+      this.onerror?.(new Event("error"));
+    }
+  }
+
+  class FakeMediaElementSourceNode {
+    constructor(media) {
+      this.mediaElement = media;
+      this.connected = null;
+      this.disconnected = false;
+      mediaSources.push(this);
+    }
+
+    connect(target) {
+      this.connected = target;
+      return target;
+    }
+
+    disconnect() {
+      this.disconnected = true;
+    }
+  }
+
   class FakeAudioContext {
     constructor() {
       this.destination = { kind: "destination" };
-      this.state = "running";
+      this.state = options.contextState ?? "running";
       contexts.push(this);
     }
 
@@ -186,6 +251,10 @@ async function loadAudioModule(options = {}) {
     createGain() {
       return new FakeGainNode();
     }
+    createMediaElementSource(media) {
+      return new FakeMediaElementSourceNode(media);
+    }
+
 
     decodeAudioData(encoded) {
       scenario.decodeCalls += 1;
@@ -193,13 +262,22 @@ async function loadAudioModule(options = {}) {
     }
 
     async resume() {
-      this.state = "running";
+      scenario.resumeCalls += 1;
+      if (options.resumeAudio) {
+        await options.resumeAudio(this, scenario);
+      } else {
+        this.state = "running";
+      }
     }
   }
 
   globalThis.document = {
     querySelector(selector) {
       return selector === "input#volume" ? slider : null;
+    },
+    createElement(tagName) {
+      assert.equal(tagName, "audio");
+      return new FakeAudioElement();
     },
   };
   globalThis.localStorage = {
@@ -211,6 +289,16 @@ async function loadAudioModule(options = {}) {
     },
   };
   globalThis.location = { origin: "https://soundbot.test" };
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      userAgent:
+        options.userAgent ??
+        "Mozilla/5.0 (X11; Linux x86_64; rv:141.0) Gecko/20100101 Firefox/141.0",
+      platform: options.platform ?? "Linux x86_64",
+      maxTouchPoints: options.maxTouchPoints ?? 0,
+    },
+  });
   globalThis.AudioContext = FakeAudioContext;
   globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
@@ -246,6 +334,11 @@ test("concurrent main and Chaos plays share one decode and preserve live 0-400% 
   assert.equal(scenario.audioFetches.length, 1);
   assert.equal(scenario.decodeCalls, 1);
   assert.equal(scenario.sources.length, 2, "each accepted play gets a one-shot source");
+  assert.equal(
+    scenario.mediaElements.length,
+    0,
+    "desktop Firefox must remain on decoded-buffer playback"
+  );
   assert.ok(scenario.sources.every((source) => source.started));
   assert.ok(scenario.gains.every((gain) => gain.gain.value === 1));
   assert.deepEqual(changes, ["play"]);
@@ -443,65 +536,173 @@ test("active buffers remain reusable when pinned voices fill the LRU", async () 
   audio.stopMainAudio();
 });
 
-test("failed fetch and failed decode clear in-flight state and allow retry", async () => {
-  const fetchFailure = sound("fetch-failure");
-  const decodeFailure = sound("decode-failure");
-  const attempts = new Map();
-  let rejectNextDecode = true;
+test("iOS WebKit uses the boosted media bridge with shared context and full lifecycle", async () => {
+  const main = sound("ios-main");
+  const chaos = sound("ios-chaos");
+  const { audio, scenario, contexts } = await loadAudioModule({
+    storedVolume: 400,
+    contextState: "suspended",
+    mediaDuration: 8,
+    userAgent:
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 CriOS/138.0 Mobile/15E148 Safari/604.1",
+    platform: "iPhone",
+    maxTouchPoints: 5,
+  });
+  const mainEvents = [];
+  const chaosEvents = [];
+  audio.addMainAudioChangeListener((event) => mainEvents.push(event.type));
+
+  audio.playMainAudio(main);
+  audio.playButtonAudio(chaos, (event) => chaosEvents.push(`one:${event.type}`));
+  audio.playButtonAudio(chaos, (event) => chaosEvents.push(`two:${event.type}`));
+  await settle();
+
+  assert.equal(contexts.length, 1, "both media paths share one bounded AudioContext");
+  assert.equal(scenario.audioFetches.length, 0, "iOS selection happens before Web Audio decode");
+  assert.equal(scenario.decodeCalls, 0);
+  assert.equal(scenario.sources.length, 0);
+  assert.equal(scenario.mediaElements.length, 3);
+  assert.equal(scenario.mediaSources.length, 3);
+  assert.equal(scenario.mediaPlayCalls, 3, "each accepted play starts exactly once");
+  assert.ok(scenario.gains.every((gain) => gain.gain.value === 4));
+  assert.deepEqual(mainEvents, ["play"]);
+  assert.deepEqual(chaosEvents, ["one:play", "two:play"]);
+  assert.equal(scenario.counters.length, 3);
+
+  scenario.mediaElements[0].currentTime = 4;
+  assert.equal(audio.getMainAudioProgress(), 0.5);
+  audio.setVolume(275);
+  assert.ok(scenario.gains.every((gain) => gain.gain.value === 2.75));
+
+  scenario.mediaElements[1].fail();
+  await settle();
+  assert.equal(audio.getActiveButtonAudioGroups(chaos).get(chaos).length, 1);
+
+  audio.stopAllButtonAudio();
+  await settle();
+  assert.equal(scenario.mediaElements[0].paused, false);
+  assert.ok(scenario.mediaElements.slice(1).every((element) => element.paused));
+  assert.deepEqual(chaosEvents, [
+    "one:play",
+    "two:play",
+    "one:pause",
+    "two:pause",
+  ]);
+
+  scenario.mediaElements[0].finish();
+  await settle();
+  assert.equal(audio.isMainAudioActive(), false);
+  assert.deepEqual(mainEvents, ["play", "ended"]);
+});
+
+test("touch-capable iPadOS desktop mode also selects the media bridge", async () => {
+  const item = sound("ipad");
   const { audio, scenario } = await loadAudioModule({
-    fetchAudio(url, currentScenario) {
-      const attempt = (attempts.get(url) ?? 0) + 1;
-      attempts.set(url, attempt);
-      if (url.includes("fetch-failure.ogg") && attempt === 1) {
-        return Promise.resolve({ ok: false, status: 503, arrayBuffer: async () => new ArrayBuffer() });
-      }
-      return Promise.resolve(currentScenario.responseFor(audioBuffer()));
-    },
-    async decodeAudio(encoded) {
-      if (rejectNextDecode) {
-        rejectNextDecode = false;
-        throw new Error("decode failed");
-      }
-      return scenario.responseFor ? undefined : encoded;
+    userAgent:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/605.1.15 Version/18.6 Safari/605.1.15",
+    platform: "MacIntel",
+    maxTouchPoints: 5,
+  });
+  const events = [];
+  audio.addMainAudioChangeListener((event) => events.push(event.type));
+
+  audio.playMainAudio(item);
+  await settle();
+  assert.equal(scenario.mediaElements.length, 1);
+  assert.equal(scenario.sources.length, 0);
+  assert.equal(scenario.counters.length, 1);
+  scenario.mediaElements[0].fail();
+  await settle();
+  assert.equal(audio.isMainAudioActive(), false);
+  assert.deepEqual(events, ["play", "pause"]);
+  assert.equal(scenario.mediaSources[0].disconnected, true);
+});
+
+test("decode failure falls back to one boosted media start without double counting", async () => {
+  const main = sound("fallback-main");
+  const chaos = sound("fallback-chaos");
+  const { audio, scenario } = await loadAudioModule({
+    decodeAudio: async () => {
+      throw new Error("codec unavailable");
     },
   });
+  const mainEvents = [];
+  const chaosEvents = [];
+  audio.addMainAudioChangeListener((event) => mainEvents.push(event.type));
 
-  // The first request fails at fetch and must become inactive without starting.
-  audio.playMainAudio(fetchFailure);
+  audio.playMainAudio(main);
+  audio.playButtonAudio(chaos, (event) => chaosEvents.push(event.type));
   await settle();
-  assert.equal(audio.isMainAudioActive(), false);
+
+  assert.equal(scenario.decodeCalls, 2);
   assert.equal(scenario.sources.length, 0);
+  assert.equal(scenario.mediaElements.length, 2);
+  assert.equal(scenario.mediaPlayCalls, 2, "fallback starts once per accepted request");
+  assert.equal(scenario.counters.length, 2, "fallback never records a second play");
+  assert.deepEqual(mainEvents, ["play"]);
+  assert.deepEqual(chaosEvents, ["play"]);
 
-  // This retry reaches decode; the injected first decode failure also clears the shared promise.
-  audio.playMainAudio(fetchFailure);
-  await settle();
-  assert.equal(audio.isMainAudioActive(), false);
-  assert.equal(scenario.sources.length, 0);
-
-  // A subsequent request decodes successfully using an explicit decoded buffer.
-  scenario.decodeAudio = async () => audioBuffer(1, 6);
-  audio.playMainAudio(fetchFailure);
-  await settle();
-  assert.equal(audio.isMainAudioActive(fetchFailure), true);
-  assert.equal(scenario.sources.length, 1);
-  assert.equal(attempts.get(scenario.audioFetches[0]), 3);
-
+  audio.setVolume(400);
+  assert.ok(scenario.gains.every((gain) => gain.gain.value === 4));
   audio.stopMainAudio();
-  rejectNextDecode = true;
-  scenario.decodeAudio = async () => {
-    if (rejectNextDecode) {
-      rejectNextDecode = false;
-      throw new Error("decode failed again");
-    }
-    return audioBuffer();
-  };
-  audio.playMainAudio(decodeFailure);
+  audio.stopAllButtonAudio();
   await settle();
+  assert.deepEqual(mainEvents, ["play", "pause"]);
+  assert.deepEqual(chaosEvents, ["play", "pause"]);
+  assert.ok(scenario.mediaElements.every((element) => element.paused));
+  assert.ok(scenario.mediaSources.every((source) => source.disconnected));
+});
+
+test("cancelled decode failures cannot start a stale media fallback", async () => {
+  const mainDecode = deferred();
+  const chaosDecode = deferred();
+  const main = sound("cancel-main");
+  const chaos = sound("cancel-chaos");
+  const { audio, scenario } = await loadAudioModule({
+    decodeAudio(encoded) {
+      return scenario.decodeCalls === 1 ? mainDecode.promise : chaosDecode.promise;
+    },
+  });
+  const mainEvents = [];
+  const chaosEvents = [];
+  audio.addMainAudioChangeListener((event) => mainEvents.push(event.type));
+
+  audio.playMainAudio(main);
+  audio.playButtonAudio(chaos, (event) => chaosEvents.push(event.type));
+  await settle();
+  audio.stopMainAudio();
+  audio.stopAllButtonAudio();
+  mainDecode.reject(new Error("late main decode failure"));
+  chaosDecode.reject(new Error("late Chaos decode failure"));
+  await settle();
+
+  assert.equal(scenario.mediaElements.length, 0);
+  assert.equal(scenario.mediaPlayCalls, 0);
+  assert.equal(scenario.counters.length, 2);
+  assert.deepEqual(mainEvents, ["pause"]);
+  assert.deepEqual(chaosEvents, ["pause"]);
+});
+
+test("a rejected AudioContext unlock never starts or leaks playback", async () => {
+  const item = sound("unlock-failure");
+  const { audio, scenario } = await loadAudioModule({
+    contextState: "suspended",
+    resumeAudio: async () => {
+      throw new Error("activation denied");
+    },
+  });
+  const events = [];
+  audio.addMainAudioChangeListener((event) => events.push(event.type));
+
+  audio.playMainAudio(item);
+  await settle();
+
+  assert.equal(scenario.resumeCalls, 1);
+  assert.equal(scenario.sources.length, 0);
+  assert.equal(scenario.mediaElements.length, 0);
   assert.equal(audio.isMainAudioActive(), false);
-  audio.playMainAudio(decodeFailure);
-  await settle();
-  assert.equal(audio.isMainAudioActive(decodeFailure), true);
-  assert.equal(attempts.get(scenario.audioFetches.find((url) => url.includes("decode-failure.ogg"))), 2);
+  assert.deepEqual(events, ["pause"]);
+  assert.equal(scenario.counters.length, 1);
 });
 
 test("a versioned URL is the decode-cache identity", async () => {
