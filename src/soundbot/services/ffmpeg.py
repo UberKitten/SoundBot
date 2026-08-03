@@ -168,6 +168,8 @@ class FFmpegService:
         # Per-sound volume adjustment in dB (applied after normalization)
         if volume_db != 0.0:
             filters.append(f"volume={volume_db}dB")
+        # Rebuild a contiguous sample timeline after filters that may preserve PTS holes.
+        filters.append("asetpts=N/SR/TB")
 
         if filters:
             args.extend(["-af", ",".join(filters)])

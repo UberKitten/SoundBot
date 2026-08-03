@@ -1,18 +1,24 @@
 import { SOUNDS_API_PATH, SOUNDS_PATH } from "config";
 import { parseInteger, scheduleBackgroundTask } from "utils";
 
-const changeListeners: Map<
-  HTMLAudioElement,
-  Array<(e: Event) => unknown>
-> = new Map();
+type ChangeListener = (e: Event) => unknown;
 
-const mainAudio = document.createElement("audio");
-let mainAudioCtx: AudioContext | null = null;
+const changeListeners: Map<EventTarget, ChangeListener[]> = new Map();
+const mainAudioEvents = new EventTarget();
+
+let audioCtx: AudioContext | null = null;
 let mainSound: Sound | null = null;
-let mainAudioSource: MediaElementAudioSourceNode | null = null;
-let mainAudioGain: GainNode | null = null;
+let mainPending: MainRequest | null = null;
+let mainVoice: Voice | null = null;
+let mainGeneration = 0;
 
-const buttonAudio: Map<Sound, AudioGroup[]> = new Map();
+const buttonAudio: Map<Sound, Voice[]> = new Map();
+const pendingButtonAudio: Set<ButtonRequest> = new Set();
+
+const DECODED_CACHE_LIMIT_BYTES = 64 * 1024 * 1024;
+const decodedAudio: Map<string, DecodedAudio> = new Map();
+const activeDecodedAudio: Map<string, DecodedAudio> = new Map();
+const inFlightAudio: Map<string, Promise<AudioBuffer>> = new Map();
 
 const volumeSlider = document.querySelector(
   "input#volume"
@@ -51,27 +57,56 @@ export interface SoundGroup {
 }
 
 export interface AudioGroup {
-  element: HTMLAudioElement;
-  source: MediaElementAudioSourceNode;
+  element: EventTarget;
+  source: AudioBufferSourceNode;
   gain: GainNode;
 }
 
+interface Voice extends AudioGroup {
+  sound: Sound;
+  cacheKey: string;
+  buffer: AudioBuffer;
+  startedAt: number;
+  duration: number;
+  stopped: boolean;
+}
+
+interface MainRequest {
+  generation: number;
+  sound: Sound;
+  cacheKey: string;
+}
+
+interface ButtonRequest {
+  sound: Sound;
+  cacheKey: string;
+  element: EventTarget;
+  cancelled: boolean;
+}
+
+interface DecodedAudio {
+  buffer: AudioBuffer;
+  bytes: number;
+  pins: number;
+}
+
 /**
- * Sets the soundboard volume
+ * Sets the soundboard volume.
  *
- * @param vol A value between 0 and 1000, inclusive. Values outside this range will be clamped
+ * @param vol A percentage between 0 and 400, inclusive. Values outside this range are clamped.
  */
 export function setVolume(vol: string | number | null) {
   const intVol = parseInteger(vol);
   if (typeof intVol === "undefined") return;
 
-  volume = Math.max(0, Math.min(intVol / 100, 10));
+  const volumePercent = Math.max(0, Math.min(intVol, 400));
+  volume = volumePercent / 100;
   getActiveAudioGroups().forEach((groups) =>
     groups.forEach(({ gain }) => (gain.gain.value = volume))
   );
 
-  if (volumeSlider) volumeSlider.value = intVol.toString();
-  localStorage.setItem("volume", intVol.toString());
+  if (volumeSlider) volumeSlider.value = volumePercent.toString();
+  localStorage.setItem("volume", volumePercent.toString());
 }
 
 export function getVolume() {
@@ -90,7 +125,11 @@ export function isSoundObject(maybeSound: unknown) {
 
   if (typeof maybeSoundObj.name !== "string") return false;
   // audio_path can be null or string
-  if (maybeSoundObj.audio_path !== null && typeof maybeSoundObj.audio_path !== "string") return false;
+  if (
+    maybeSoundObj.audio_path !== null &&
+    typeof maybeSoundObj.audio_path !== "string"
+  )
+    return false;
   if (typeof maybeSoundObj.discord_plays !== "number") return false;
 
   return true;
@@ -105,16 +144,19 @@ export function getSoundPath(sound?: Sound): string | undefined {
   const soundUrl = new URL(`${SOUNDS_PATH}/${sound.audio_path}`, location.origin);
   // Use modified date as cache buster if available
   if (sound.modified) {
-    soundUrl.searchParams.append("v", new Date(sound.modified).getTime().toString());
+    soundUrl.searchParams.append(
+      "v",
+      new Date(sound.modified).getTime().toString()
+    );
   }
   return soundUrl.href;
 }
 
-export function attachChangeListeners(
-  audioElement: HTMLAudioElement,
-  cb: (e: Event) => unknown
-) {
-  const existingListeners = changeListeners.get(audioElement);
+function attachPlaybackChangeListener(
+  target: EventTarget,
+  cb: ChangeListener
+): void {
+  const existingListeners = changeListeners.get(target);
 
   if (existingListeners) {
     existingListeners.push(cb);
@@ -122,29 +164,53 @@ export function attachChangeListeners(
   }
 
   ["pause", "play", "ended"].forEach((eventType) => {
-    audioElement.addEventListener(eventType, (e) => {
-      changeListeners.get(audioElement)?.forEach((listener) => {
+    target.addEventListener(eventType, (e) => {
+      changeListeners.get(target)?.forEach((listener) => {
         scheduleBackgroundTask(() => listener(e));
       });
     });
   });
 
-  changeListeners.set(audioElement, [cb]);
+  changeListeners.set(target, [cb]);
+}
+
+export function attachChangeListeners(
+  audioElement: HTMLAudioElement,
+  cb: ChangeListener
+) {
+  attachPlaybackChangeListener(audioElement, cb);
 }
 
 export function detachChangeListeners(
   audioElement: HTMLAudioElement,
-  cb: (e: Event) => unknown
+  cb: ChangeListener
 ) {
-  const existingListeners = changeListeners.get(audioElement);
+  detachPlaybackChangeListener(audioElement, cb);
+}
+
+function detachPlaybackChangeListener(
+  target: EventTarget,
+  cb: ChangeListener
+): void {
+  const existingListeners = changeListeners.get(target);
   if (!existingListeners) return;
 
   const iCB = existingListeners.indexOf(cb);
   if (iCB === -1) return;
 
-  const cleanup = () =>
-    existingListeners.splice(existingListeners.indexOf(cb), 1);
-  scheduleBackgroundTask(cleanup);
+  scheduleBackgroundTask(() => {
+    const listenerIndex = existingListeners.indexOf(cb);
+    if (listenerIndex !== -1) existingListeners.splice(listenerIndex, 1);
+  });
+}
+
+function dispatchPlaybackEvent(target: EventTarget, type: string): void {
+  target.dispatchEvent(new Event(type));
+}
+
+function dispatchTerminalButtonEvent(target: EventTarget, type: string): void {
+  dispatchPlaybackEvent(target, type);
+  changeListeners.delete(target);
 }
 
 function recordWebPlay(sound: Sound) {
@@ -153,108 +219,384 @@ function recordWebPlay(sound: Sound) {
   }).catch(() => {});
 }
 
-export function playButtonAudio(sound: Sound, updateCb: (e: Event) => unknown) {
-  const audioGroups = buttonAudio.get(sound);
-  const element = document.createElement("audio");
-  const soundPath = getSoundPath(sound);
-  if (!soundPath) return;
-  element.src = soundPath;
-  const audioCtx = new AudioContext();
-  const source = audioCtx.createMediaElementSource(element);
-  const gain = audioCtx.createGain();
-  source.connect(gain);
-  gain.connect(audioCtx.destination);
+function getAudioContext(): AudioContext {
+  if (!audioCtx) audioCtx = new AudioContext();
+  if (audioCtx.state === "suspended") void audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
 
-  if (audioGroups) {
-    audioGroups.push({ element, gain, source });
-  } else {
-    buttonAudio.set(sound, [{ element, gain, source }]);
+function decodedAudioBytes(buffer: AudioBuffer): number {
+  return buffer.length * buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
+}
+
+function touchDecodedAudio(cacheKey: string, decoded: DecodedAudio): void {
+  decodedAudio.delete(cacheKey);
+  decodedAudio.set(cacheKey, decoded);
+}
+
+function decodedCacheBytes(): number {
+  let bytes = 0;
+  decodedAudio.forEach((decoded) => (bytes += decoded.bytes));
+  return bytes;
+}
+
+function cacheDecodedAudio(cacheKey: string, buffer: AudioBuffer): void {
+  const bytes = decodedAudioBytes(buffer);
+  if (bytes > DECODED_CACHE_LIMIT_BYTES) return;
+
+  const existing = decodedAudio.get(cacheKey);
+  if (existing) decodedAudio.delete(cacheKey);
+
+  let cacheBytes = decodedCacheBytes();
+  while (cacheBytes + bytes > DECODED_CACHE_LIMIT_BYTES) {
+    let evictableKey: string | null = null;
+    let evictableBytes = 0;
+    for (const [candidateKey, decoded] of decodedAudio) {
+      if (decoded.pins !== 0) continue;
+      evictableKey = candidateKey;
+      evictableBytes = decoded.bytes;
+      break;
+    }
+    if (evictableKey === null) {
+      if (existing) decodedAudio.set(cacheKey, existing);
+      return;
+    }
+    decodedAudio.delete(evictableKey);
+    cacheBytes -= evictableBytes;
   }
 
-  gain.gain.value = volume;
-  element.play();
-  recordWebPlay(sound);
-  attachChangeListeners(element, updateCb);
+  decodedAudio.set(cacheKey, { buffer, bytes, pins: 0 });
+}
 
-  scheduleBackgroundTask(() => {
-    for (const [, audioGroups] of buttonAudio) {
-      const activeGroups = audioGroups.filter((group) => !group.element.paused);
-      audioGroups.splice(0, audioGroups.length, ...activeGroups);
-    }
+function getDecodedAudio(cacheKey: string): Promise<AudioBuffer> {
+  const cached = decodedAudio.get(cacheKey);
+  if (cached) {
+    touchDecodedAudio(cacheKey, cached);
+    return Promise.resolve(cached.buffer);
+  }
+  const active = activeDecodedAudio.get(cacheKey);
+  if (active) return Promise.resolve(active.buffer);
+
+  const inFlight = inFlightAudio.get(cacheKey);
+  if (inFlight) return inFlight;
+
+  const ctx = getAudioContext();
+  const decode = fetch(cacheKey)
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`Unable to fetch audio (${response.status})`);
+      }
+      return response.arrayBuffer();
+    })
+    .then((encodedAudio) => ctx.decodeAudioData(encodedAudio))
+    .then((buffer) => {
+      cacheDecodedAudio(cacheKey, buffer);
+      return buffer;
+    })
+    .finally(() => {
+      if (inFlightAudio.get(cacheKey) === decode) {
+        inFlightAudio.delete(cacheKey);
+      }
+    });
+
+  inFlightAudio.set(cacheKey, decode);
+  return decode;
+}
+
+function pinDecodedAudio(cacheKey: string, buffer: AudioBuffer): void {
+  const cached = decodedAudio.get(cacheKey);
+  if (cached?.buffer === buffer) {
+    cached.pins += 1;
+    touchDecodedAudio(cacheKey, cached);
+    return;
+  }
+
+  const active = activeDecodedAudio.get(cacheKey);
+  if (active?.buffer === buffer) {
+    active.pins += 1;
+    return;
+  }
+  activeDecodedAudio.set(cacheKey, {
+    buffer,
+    bytes: decodedAudioBytes(buffer),
+    pins: 1,
   });
 }
 
-export function playMainAudio(sound: Sound) {
-  if (!mainAudioCtx) mainAudioCtx = new AudioContext();
-  if (!mainAudioSource) {
-    mainAudioSource = mainAudioCtx.createMediaElementSource(mainAudio);
-  }
-  if (!mainAudioGain) {
-    mainAudioGain = mainAudioCtx.createGain();
-    mainAudioSource.connect(mainAudioGain);
-    mainAudioGain.connect(mainAudioCtx.destination);
+function releaseDecodedAudio(cacheKey: string, buffer: AudioBuffer): void {
+  const cached = decodedAudio.get(cacheKey);
+  if (cached?.buffer === buffer) {
+    cached.pins = Math.max(0, cached.pins - 1);
+    return;
   }
 
-  mainAudioGain.gain.value = volume;
-  mainSound = sound;
+  const active = activeDecodedAudio.get(cacheKey);
+  if (!active || active.buffer !== buffer) return;
+  active.pins = Math.max(0, active.pins - 1);
+  if (active.pins === 0) activeDecodedAudio.delete(cacheKey);
+}
+
+function createVoice(
+  sound: Sound,
+  cacheKey: string,
+  buffer: AudioBuffer,
+  element: EventTarget
+): Voice {
+  const ctx = getAudioContext();
+  const source = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  source.buffer = buffer;
+  gain.gain.value = volume;
+  source.connect(gain);
+  gain.connect(ctx.destination);
+  pinDecodedAudio(cacheKey, buffer);
+
+  return {
+    element,
+    source,
+    gain,
+    sound,
+    cacheKey,
+    buffer,
+    startedAt: ctx.currentTime,
+    duration: buffer.duration,
+    stopped: false,
+  };
+}
+
+function disconnectVoice(voice: Voice): void {
+  if (voice.stopped) return;
+  voice.stopped = true;
+  voice.source.onended = null;
+  try {
+    voice.source.stop();
+  } catch {
+    // A naturally ended one-shot source cannot be stopped again.
+  }
+  voice.source.disconnect();
+  voice.gain.disconnect();
+  releaseDecodedAudio(voice.cacheKey, voice.buffer);
+}
+
+function removeButtonVoice(voice: Voice): void {
+  const voices = buttonAudio.get(voice.sound);
+  if (!voices) return;
+  const index = voices.indexOf(voice);
+  if (index !== -1) voices.splice(index, 1);
+  if (voices.length === 0) buttonAudio.delete(voice.sound);
+}
+
+async function startButtonAudio(request: ButtonRequest): Promise<void> {
+  let buffer: AudioBuffer;
+  try {
+    buffer = await getDecodedAudio(request.cacheKey);
+  } catch {
+    if (!request.cancelled) {
+      pendingButtonAudio.delete(request);
+      dispatchTerminalButtonEvent(request.element, "pause");
+    }
+    return;
+  }
+
+  if (request.cancelled) return;
+  pendingButtonAudio.delete(request);
+
+  let voice: Voice;
+  try {
+    voice = createVoice(
+      request.sound,
+      request.cacheKey,
+      buffer,
+      request.element
+    );
+    const voices = buttonAudio.get(request.sound);
+    if (voices) voices.push(voice);
+    else buttonAudio.set(request.sound, [voice]);
+
+    voice.source.onended = () => {
+      if (voice.stopped) return;
+      voice.stopped = true;
+      voice.source.disconnect();
+      voice.gain.disconnect();
+      releaseDecodedAudio(voice.cacheKey, voice.buffer);
+      removeButtonVoice(voice);
+      dispatchTerminalButtonEvent(voice.element, "ended");
+    };
+    voice.source.start();
+  } catch {
+    if (typeof voice! !== "undefined") {
+      removeButtonVoice(voice);
+      disconnectVoice(voice);
+    }
+    dispatchTerminalButtonEvent(request.element, "pause");
+    return;
+  }
+
+  dispatchPlaybackEvent(voice.element, "play");
+}
+
+export function playButtonAudio(sound: Sound, updateCb: ChangeListener) {
   const soundPath = getSoundPath(sound);
   if (!soundPath) return;
-  mainAudio.src = soundPath;
-  mainAudio.play();
+
+  getAudioContext();
+  const request: ButtonRequest = {
+    sound,
+    cacheKey: soundPath,
+    element: new EventTarget(),
+    cancelled: false,
+  };
+  attachPlaybackChangeListener(request.element, updateCb);
+  pendingButtonAudio.add(request);
   recordWebPlay(sound);
+  void startButtonAudio(request);
+}
+
+function stopMainVoice(voice: Voice, eventType: "pause" | "ended"): void {
+  if (mainVoice !== voice || voice.stopped) return;
+  mainVoice = null;
+  mainSound = null;
+  disconnectVoice(voice);
+  dispatchPlaybackEvent(mainAudioEvents, eventType);
+}
+
+function cancelCurrentMainAudio(): boolean {
+  const hadPending = mainPending !== null;
+  mainPending = null;
+  if (mainVoice) {
+    stopMainVoice(mainVoice, "pause");
+    return true;
+  }
+  if (hadPending) {
+    mainSound = null;
+    dispatchPlaybackEvent(mainAudioEvents, "pause");
+  }
+  return hadPending;
+}
+
+async function startMainAudio(request: MainRequest): Promise<void> {
+  let buffer: AudioBuffer;
+  try {
+    buffer = await getDecodedAudio(request.cacheKey);
+  } catch {
+    if (mainGeneration === request.generation && mainPending === request) {
+      mainPending = null;
+      mainSound = null;
+      dispatchPlaybackEvent(mainAudioEvents, "pause");
+    }
+    return;
+  }
+
+  if (mainGeneration !== request.generation || mainPending !== request) return;
+
+  let voice: Voice;
+  try {
+    voice = createVoice(request.sound, request.cacheKey, buffer, mainAudioEvents);
+    mainVoice = voice;
+    mainPending = null;
+    mainSound = request.sound;
+    voice.source.onended = () => stopMainVoice(voice, "ended");
+    voice.source.start();
+  } catch {
+    if (typeof voice! !== "undefined") disconnectVoice(voice);
+    if (mainGeneration === request.generation) {
+      mainVoice = null;
+      mainPending = null;
+      mainSound = null;
+      dispatchPlaybackEvent(mainAudioEvents, "pause");
+    }
+    return;
+  }
+
+  dispatchPlaybackEvent(mainAudioEvents, "play");
+}
+
+export function playMainAudio(sound: Sound) {
+  const soundPath = getSoundPath(sound);
+  if (!soundPath) return;
+
+  getAudioContext();
+  mainGeneration += 1;
+  cancelCurrentMainAudio();
+  const request: MainRequest = {
+    generation: mainGeneration,
+    sound,
+    cacheKey: soundPath,
+  };
+  mainPending = request;
+  mainSound = sound;
+  recordWebPlay(sound);
+  void startMainAudio(request);
 }
 
 export function getActiveButtonAudioGroups(
   sound?: Sound
 ): Map<Sound, AudioGroup[]> {
-  return new Map(
-    [...buttonAudio.entries()].filter(([buttonSound, audioGroups]) =>
-      audioGroups.find(
-        (group) => !group.element.paused && (!sound || buttonSound === sound)
-      )
-    )
-  );
+  const audioGroups = new Map<Sound, AudioGroup[]>();
+  buttonAudio.forEach((voices, buttonSound) => {
+    if (!sound || buttonSound === sound)
+      audioGroups.set(buttonSound, voices.slice());
+  });
+  pendingButtonAudio.forEach((request) => {
+    if ((!sound || request.sound === sound) && !audioGroups.has(request.sound)) {
+      audioGroups.set(request.sound, []);
+    }
+  });
+  return audioGroups;
 }
 
 export function getActiveAudioGroups(sound?: Sound): Map<Sound, AudioGroup[]> {
   const audioGroups = getActiveButtonAudioGroups(sound);
-  if (!mainAudio.paused && mainSound && mainAudioGain && mainAudioSource) {
-    if (!sound || sound === mainSound)
-      audioGroups.set(mainSound, [
-        {
-          element: mainAudio,
-          gain: mainAudioGain,
-          source: mainAudioSource,
-        },
-      ]);
+  if (mainSound && (mainPending || mainVoice) && (!sound || sound === mainSound)) {
+    const groups = audioGroups.get(mainSound) ?? [];
+    if (mainVoice) groups.push(mainVoice);
+    audioGroups.set(mainSound, groups);
   }
-
   return audioGroups;
 }
 
 export function isMainAudioActive(sound?: Sound) {
-  return (!sound || sound === mainSound) && !mainAudio.paused;
+  return (
+    (!sound || sound === mainSound) &&
+    mainSound !== null &&
+    (mainPending !== null || mainVoice !== null)
+  );
 }
 
 export function getMainAudioProgress(): number {
-  if (mainAudio.paused || !mainAudio.duration) return 0;
-  return mainAudio.currentTime / mainAudio.duration;
+  if (!mainVoice || !audioCtx || mainVoice.duration <= 0) return 0;
+  return Math.max(
+    0,
+    Math.min(1, (audioCtx.currentTime - mainVoice.startedAt) / mainVoice.duration)
+  );
 }
 
-export function addMainAudioChangeListener(cb: (e: Event) => unknown) {
-  return attachChangeListeners(mainAudio, cb);
+export function addMainAudioChangeListener(cb: ChangeListener) {
+  attachPlaybackChangeListener(mainAudioEvents, cb);
 }
 
-export function removeMainAudioChangeListener(cb: (e: Event) => unknown) {
-  return detachChangeListeners(mainAudio, cb);
+export function removeMainAudioChangeListener(cb: ChangeListener) {
+  detachPlaybackChangeListener(mainAudioEvents, cb);
 }
 
 export function stopMainAudio() {
-  mainAudio.pause();
+  mainGeneration += 1;
+  cancelCurrentMainAudio();
 }
 
 export function stopAllButtonAudio() {
-  buttonAudio.forEach((groups) => {
-    groups.forEach((group) => group.element.pause());
+  pendingButtonAudio.forEach((request) => {
+    request.cancelled = true;
+    dispatchTerminalButtonEvent(request.element, "pause");
   });
+  pendingButtonAudio.clear();
+
+  buttonAudio.forEach((voices) => {
+    voices.slice().forEach((voice) => {
+      removeButtonVoice(voice);
+      disconnectVoice(voice);
+      dispatchTerminalButtonEvent(voice.element, "pause");
+    });
+  });
+  buttonAudio.clear();
 }
