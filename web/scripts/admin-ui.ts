@@ -7,11 +7,18 @@
  */
 
 import { openAddSoundModal } from "add-sound-modal";
+import {
+  ApiError,
+  fetchClipEmbedUrl,
+  soundVideoDownloadUrl,
+} from "admin-api";
 import { Sound } from "audio";
+import { copyToClipboard } from "clipboard";
 import { isAdmin, onAuthChange } from "auth";
 import { openDeleteModal, openRenameModal } from "sound-actions";
 import { openTrimEditor } from "trim-editor";
 import { openVideoPopover } from "video-popover";
+import { showToast } from "toast";
 
 export interface AdminMenuItem {
   label: string;
@@ -48,6 +55,30 @@ function ensureAddButton(): HTMLButtonElement {
   return btn;
 }
 
+function downloadClip(name: string): void {
+  const link = document.createElement("a");
+  link.href = soundVideoDownloadUrl(name);
+  link.download = "";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+async function copyClipEmbedUrl(name: string): Promise<void> {
+  try {
+    const url = await fetchClipEmbedUrl(name);
+    await copyToClipboard(url);
+    showToast("Clip embed URL copied.", "success");
+  } catch (err) {
+    if (err instanceof ApiError) {
+      showToast(err.message, "error", 6000);
+    } else {
+      showToast("Could not copy clip embed URL.", "error");
+      console.error("[admin-ui]", err);
+    }
+  }
+}
+
 /**
  * Build the admin-only context-menu items for a given sound. Returns [] when the
  * current user is not an admin so the base menu is unchanged for everyone else.
@@ -58,10 +89,20 @@ export function getAdminMenuItems(sound: Sound): AdminMenuItem[] {
     { label: "Edit / Trim…", action: () => openTrimEditor(sound.name) },
   ];
   if (sound.has_video) {
-    items.push({
-      label: "Watch clip",
-      action: () => openVideoPopover(sound.name),
-    });
+    items.push(
+      {
+        label: "Watch clip",
+        action: () => openVideoPopover(sound.name),
+      },
+      {
+        label: "Download clip",
+        action: () => downloadClip(sound.name),
+      },
+      {
+        label: "Copy clip embed URL",
+        action: () => void copyClipEmbedUrl(sound.name),
+      }
+    );
   }
   items.push(
     { label: "Rename…", action: () => openRenameModal(sound.name) },

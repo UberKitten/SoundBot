@@ -6,10 +6,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
 from soundbot.models.sounds import canonicalize_trim_timestamp
 
-from soundbot.services.clips import ClipError, ensure_clip
+from soundbot.services.clips import ClipError, ClipResult, ensure_clip
 from soundbot.services.ffmpeg import ffmpeg_service
 from soundbot.services.sounds import OperationResult, sound_service
 from soundbot.web.dependencies import AdminUser, require_admin
+from soundbot.web.clipsign import build_clip_share_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin)])
@@ -131,18 +132,11 @@ async def get_waveform(name: str):
     }
 
 
-@router.get("/sounds/{name}/video")
-async def get_clip_video(name: str):
-    """Serve a browser-playable MP4 of the sound's clip (admin only).
-
-    Ensures {safe}_clip.mp4 exists (shared helper — regenerated whenever
-    the source trimmed video / original is newer, e.g. after a re-trim).
-    Normally already generated eagerly at mutation time or by the startup
-    backfill, so this is just an mtime check.
-    """
-    sound = sound_service.get_sound(name)
-    if not sound:
+async def _ensure_clip_for_name(name: str) -> tuple[str, ClipResult]:
+    resolved = sound_service.resolve_sound_name(name)
+    if not resolved:
         raise HTTPException(status_code=404, detail=f"Sound '{name}' not found")
+    canonical_name, sound = resolved
 
     try:
         result = await ensure_clip(sound, sound_service.sounds_dir)
@@ -154,14 +148,31 @@ async def get_clip_video(name: str):
     if result is None:
         raise HTTPException(status_code=409, detail="Sound has no video")
 
+    return canonical_name, result
+
+
+@router.get("/sounds/{name}/video")
+async def get_clip_video(name: str, download: bool = False):
+    """Serve the authenticated browser clip inline or as a download."""
+    _, result = await _ensure_clip_for_name(name)
+
     # FileResponse in starlette 0.50 handles Range requests natively (206 +
     # Content-Range) — required for iOS <video>. Auth-gated, so keep it out
-    # of shared caches.
+    # of shared caches. Supplying the established clip filename makes
+    # FileResponse emit an attachment Content-Disposition for downloads.
     return FileResponse(
         result.path,
         media_type="video/mp4",
+        filename=result.path.name if download else None,
         headers={"Cache-Control": "private, no-store"},
     )
+
+
+@router.get("/sounds/{name}/clip-url")
+async def get_clip_url(name: str):
+    """Return the canonical absolute signed URL for embedding this clip."""
+    canonical_name, _ = await _ensure_clip_for_name(name)
+    return {"url": build_clip_share_url(canonical_name)}
 
 
 @router.put("/sounds/{name}/trim")

@@ -299,3 +299,18 @@ export function discardDraft(draftId: string): void {
 export function soundVideoUrl(name: string): string {
   return `${ADMIN_BASE}/sounds/${encodeURIComponent(name)}/video`;
 }
+
+/** URL for downloading the authenticated clip with its canonical filename. */
+export function soundVideoDownloadUrl(name: string): string {
+  return `${soundVideoUrl(name)}?download=true`;
+}
+
+/** Fetch the canonical absolute signed URL used to embed a clip. */
+export async function fetchClipEmbedUrl(name: string): Promise<string> {
+  const result = await request<{ url: string }>(
+    `${ADMIN_BASE}/sounds/${encodeURIComponent(name)}/clip-url`,
+    { method: "GET", credentials: "same-origin" },
+    asJson
+  );
+  return result.url;
+}
