@@ -82,7 +82,7 @@ declare module "wavesurfer" {
     /**
      * With backend "WebAudio" this returns the plugin's WebAudioPlayer shim
      * (audio-element-shaped, carries its own `audioContext`), not a real
-     * HTMLMediaElement. Used for the iOS suspended-context unlock.
+     * HTMLMediaElement. Used to verify the desktop WebAudio context is running.
      */
     getMediaElement(): HTMLMediaElement;
     setVolume(volume: number): void;

@@ -24,6 +24,11 @@ import {
   WAVEFORM_ZOOM_MIN,
   WAVEFORM_ZOOM_STEP,
 } from "waveform-controls";
+import {
+  createWaveformPreviewPlayback,
+  selectWaveformPlaybackBackend,
+  WaveformPreviewPlayback,
+} from "waveform-playback";
 
 const EDGE_PREVIEW_SECONDS = 1.5;
 export const MIN_REGION_LENGTH = 0.05;
@@ -116,6 +121,7 @@ export function openWaveformEditor(
   let wavesurfer: WaveSurfer | null = null;
   let region: Region | null = null;
   let regions: RegionsPlugin | null = null;
+  let previewPlayback: WaveformPreviewPlayback | null = null;
   let loop = false;
   let busy = false;
   let destroyed = false;
@@ -260,6 +266,8 @@ export function openWaveformEditor(
       region = null;
       regions = null;
     }
+    previewPlayback?.destroy();
+    previewPlayback = null;
   }
 
   function applyRegionToState(): void {
@@ -333,32 +341,13 @@ export function openWaveformEditor(
     const end = clamp(to, start + 0.001, state.duration);
     playStopAt = end;
     wavesurfer.setTime(start);
-    resumeAudioContext();
-    wavesurfer.play().catch(() => {
-      /* autoplay guards — ignore */
+    const playback = previewPlayback;
+    void playback?.play().catch(() => {
+      if (previewPlayback === playback) stopPlayback();
     });
     updatePlayButton();
   }
 
-  /**
-   * iOS unlock for the WebAudio backend: wavesurfer's WebAudio player creates
-   * its own AudioContext at construction (outside any user gesture) and the
-   * vendored build NEVER calls resume() — on iOS that context starts
-   * "suspended" and plays pure silence (no error, so play() resolves fine).
-   * Unlocking the soundboard's separate context doesn't help; each context
-   * must be resumed within a gesture. playRange only ever runs from taps/
-   * keydowns, so resuming here is always gesture-blessed.
-   */
-  function resumeAudioContext(): void {
-    if (!wavesurfer) return;
-    const media = wavesurfer.getMediaElement() as unknown as {
-      audioContext?: AudioContext;
-    };
-    const ctx = media.audioContext;
-    if (ctx && ctx.state === "suspended") {
-      void ctx.resume();
-    }
-  }
 
   function playEdge(edge: "start" | "end"): void {
     if (edge === "start") {
@@ -735,7 +724,7 @@ export function openWaveformEditor(
       );
       vol.value = String(previewVolumePercent);
       volValue.textContent = `${previewVolumePercent}%`;
-      wavesurfer?.setVolume(previewVolumePercent / 100);
+      previewPlayback?.setVolume(previewVolumePercent / 100);
     });
     volWrap.appendChild(vol);
     volWrap.appendChild(volValue);
@@ -756,14 +745,13 @@ export function openWaveformEditor(
     modal.body.appendChild(hint);
 
     // ---- create WaveSurfer ----
+    const playbackBackend = selectWaveformPlaybackBackend();
     const ws = WaveSurfer.create({
       container: waveContainer,
-      // WebAudio backend: playback comes from the same fully-decoded buffer the
-      // waveform is drawn from, so seeks/edge previews are sample-accurate. The
-      // default media-element backend seeks VBR MP3s via the Xing TOC (a 100-
-      // entry estimate), which lands playback early/late relative to the
-      // reported currentTime — that skew is why edge previews cut off tails.
-      backend: "WebAudio",
+      // iOS/iPadOS uses WaveSurfer's media-element transport bridged through a
+      // user-activated GainNode. Desktop keeps the decoded WebAudio backend for
+      // sample-accurate seeks on VBR MP3s.
+      backend: playbackBackend,
       height: 160,
       waveColor: "rgba(255,255,255,0.35)",
       progressColor: "rgba(66,65,179,0.9)",
@@ -774,9 +762,11 @@ export function openWaveformEditor(
       autoScroll: true,
       url: info.audio_url,
     });
-    // WaveSurfer owns the WebAudio gain path; using its player volume avoids
-    // creating extra AudioContexts/GainNodes and survives editor reloads.
-    ws.setVolume(previewVolumePercent / 100);
+    previewPlayback = createWaveformPreviewPlayback(
+      ws,
+      playbackBackend,
+      previewVolumePercent / 100
+    );
 
     const onWaveformWheel = (event: WheelEvent) => {
       const decision = decideWheelZoom({
@@ -864,7 +854,7 @@ export function openWaveformEditor(
 
     ws.on("ready", (duration: number) => {
       if (destroyed) return;
-      ws.setVolume(previewVolumePercent / 100);
+      previewPlayback?.setVolume(previewVolumePercent / 100);
       if (currentZoom !== WAVEFORM_ZOOM_MIN) {
         try {
           ws.zoom(currentZoom);

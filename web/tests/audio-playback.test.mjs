@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import test from "node:test";
 
+const audioPlatformModule = new URL(
+  "../scripts/audio-platform.ts",
+  import.meta.url
+).href;
 const configModule =
   "data:text/javascript," +
   encodeURIComponent(
@@ -20,6 +24,9 @@ const utilsModule =
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier === "audio-platform") {
+      return { url: audioPlatformModule, shortCircuit: true };
+    }
     if (specifier === "config") return { url: configModule, shortCircuit: true };
     if (specifier === "utils") return { url: utilsModule, shortCircuit: true };
     return nextResolve(specifier, context);

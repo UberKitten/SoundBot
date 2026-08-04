@@ -1,3 +1,4 @@
+import { shouldUseMediaElementEngine } from "audio-platform";
 import { SOUNDS_API_PATH, SOUNDS_PATH } from "config";
 import { parseInteger, scheduleBackgroundTask } from "utils";
 
@@ -107,13 +108,6 @@ interface DecodedAudio {
   pins: number;
 }
 
-function shouldUseMediaElementEngine(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return (
-    /iP(?:hone|ad|od)/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
-  );
-}
 
 const preferredPlaybackEngine = shouldUseMediaElementEngine()
   ? "media-element"
