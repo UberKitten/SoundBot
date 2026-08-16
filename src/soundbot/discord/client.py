@@ -36,6 +36,7 @@ AUDIO_EXTENSIONS = {
     ".mkv",
 }
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25MB
+RANDOM_DEFAULT_MAX_LENGTH_SECONDS = 120.0
 
 
 def strip_command_prefix(name: str) -> str:
@@ -860,17 +861,36 @@ class SoundCommands(commands.Cog):
 
     @app_commands.command(name="random")
     @app_commands.guild_only()
-    @app_commands.describe(group="Optional group to pick from")
+    @app_commands.describe(
+        group="Optional group to pick from",
+        max_length="Optional maximum sound length in seconds (default: 120)",
+    )
     async def random_sound(
-        self, interaction: Interaction, group: Optional[str] = None
+        self,
+        interaction: Interaction,
+        group: Optional[str] = None,
+        max_length: Optional[float] = None,
     ):
-        """Play a random sound (max 2 minutes).
+        """Play a random sound (default max 2 minutes).
 
         Without a group, treats each random_mode="together" group as one slot (so a
         group of 100 taunts doesn't dominate). With a group, picks a random
         eligible member of that group.
         """
-        MAX_DURATION = 120.0
+        if max_length is not None and max_length <= 0:
+            _ = await interaction.response.send_message(
+                "❌ Maximum length must be greater than 0 seconds", ephemeral=True
+            )
+            return
+
+        duration_limit = (
+            RANDOM_DEFAULT_MAX_LENGTH_SECONDS if max_length is None else max_length
+        )
+        limit_description = (
+            "under 2 minutes"
+            if max_length is None
+            else f"at or under {max_length:g} seconds"
+        )
 
         def is_eligible(name: str) -> bool:
             sound = sound_service.get_sound(name)
@@ -884,7 +904,7 @@ class SoundCommands(commands.Cog):
                     duration = end - start
             elif sound.source_duration:
                 duration = sound.source_duration
-            return duration is None or duration <= MAX_DURATION
+            return duration is None or duration <= duration_limit
 
         # If a group is specified, pick from just that group
         if group is not None:
@@ -898,7 +918,8 @@ class SoundCommands(commands.Cog):
             eligible_members = [n for n in members if is_eligible(n)]
             if not eligible_members:
                 _ = await interaction.response.send_message(
-                    f"❌ No sounds under 2 minutes in group '{group}'", ephemeral=True
+                    f"❌ No sounds {limit_description} in group '{group}'",
+                    ephemeral=True,
                 )
                 return
             name = random.choice(eligible_members)
@@ -935,7 +956,7 @@ class SoundCommands(commands.Cog):
             # Total candidate slots: individuals + one per together-group
             if not individual_eligible and not together_groups:
                 _ = await interaction.response.send_message(
-                    "❌ No sounds under 2 minutes available", ephemeral=True
+                    f"❌ No sounds {limit_description} available", ephemeral=True
                 )
                 return
 
