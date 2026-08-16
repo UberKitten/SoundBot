@@ -81,8 +81,8 @@ async def run_random(
 async def test_random_omission_keeps_120_second_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state.sounds["at-default"] = make_sound(source_duration=120.0)
-    state.sounds["over-default"] = make_sound(source_duration=120.001)
+    state.sounds["at-default"] = make_sound(duration=120.0)
+    state.sounds["over-default"] = make_sound(duration=120.001)
 
     interaction, played = await run_random(monkeypatch)
 
@@ -92,21 +92,21 @@ async def test_random_omission_keeps_120_second_default(
 
 
 @pytest.mark.asyncio
-async def test_random_omission_keeps_unknown_duration_eligible(
+async def test_random_uses_required_duration_when_source_duration_is_absent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state.sounds["unknown-duration"] = make_sound()
+    state.sounds["measured-ogg"] = make_sound(duration=1.5, source_duration=None)
 
     _, played = await run_random(monkeypatch)
 
-    assert played == ["unknown-duration"]
+    assert played == ["measured-ogg"]
 
 
 @pytest.mark.asyncio
-async def test_random_custom_cap_excludes_unknown_duration_and_reports_none_eligible(
+async def test_random_custom_cap_uses_required_duration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state.sounds["unknown-duration"] = make_sound()
+    state.sounds["too-long"] = make_sound(duration=5.001, source_duration=None)
 
     interaction, played = await run_random(monkeypatch, max_length=5.0)
 
@@ -121,8 +121,8 @@ async def test_random_custom_cap_excludes_unknown_duration_and_reports_none_elig
 async def test_random_custom_cap_excludes_longer_sounds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state.sounds["eligible"] = make_sound(source_duration=3.5)
-    state.sounds["too-long"] = make_sound(source_duration=3.501)
+    state.sounds["eligible"] = make_sound(duration=3.5)
+    state.sounds["too-long"] = make_sound(duration=3.501)
 
     _, played = await run_random(monkeypatch, max_length=3.5)
 
@@ -134,12 +134,14 @@ async def test_random_custom_cap_is_inclusive_for_trimmed_duration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     state.sounds["trimmed-to-boundary"] = make_sound(
+        duration=5.0,
         source_duration=30.0,
         timestamps={"start": 2.0, "end": 7.0},
     )
     state.sounds["trimmed-over-boundary"] = make_sound(
+        duration=5.001,
         source_duration=30.0,
-        timestamps={"start": 2.0, "end": 7.001},
+        timestamps={"start": 2.0, "end": 7.0},
     )
 
     _, played = await run_random(monkeypatch, max_length=5.0)
@@ -151,7 +153,7 @@ async def test_random_custom_cap_is_inclusive_for_trimmed_duration(
 async def test_random_custom_cap_reports_no_eligible_group_member(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    state.sounds["too-long"] = make_sound(source_duration=6.0)
+    state.sounds["too-long"] = make_sound(duration=6.0)
     _ = client.sound_service.create_group("long-group")
     _ = client.sound_service.add_to_group("long-group", "too-long")
 
@@ -171,7 +173,7 @@ async def test_random_custom_cap_reports_no_eligible_group_member(
 async def test_random_rejects_non_positive_custom_cap(
     monkeypatch: pytest.MonkeyPatch, max_length: float
 ) -> None:
-    state.sounds["sound"] = make_sound(source_duration=1.0)
+    state.sounds["sound"] = make_sound(duration=1.0)
 
     interaction, played = await run_random(monkeypatch, max_length=max_length)
 

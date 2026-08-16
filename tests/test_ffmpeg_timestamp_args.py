@@ -5,7 +5,11 @@ from typing import Any
 import pytest
 
 from soundbot.models.sounds import Timestamps
-from soundbot.services.ffmpeg import FFmpegService, format_ffmpeg_timestamp
+from soundbot.services.ffmpeg import (
+    FFmpegService,
+    ProbeResult,
+    format_ffmpeg_timestamp,
+)
 from soundbot.web.routes.admin import AddSoundBody, TrimBody
 from soundbot.web.routes.drafts import CommitDraftBody
 
@@ -15,6 +19,14 @@ class SuccessfulProcess:
 
     async def communicate(self) -> tuple[bytes, bytes]:
         return b"", b""
+
+
+@pytest.fixture(autouse=True)
+def verified_playable_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def probe(_self: FFmpegService, _path: Path) -> ProbeResult:
+        return ProbeResult(duration=3.875, has_audio=True)
+
+    monkeypatch.setattr(FFmpegService, "probe", probe)
 
 
 def argument_after(args: tuple[str, ...], flag: str) -> str:

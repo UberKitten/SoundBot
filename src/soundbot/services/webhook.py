@@ -86,18 +86,16 @@ def _build_add_embed(sound_name: str) -> Optional[dict]:
     if sound.source_url:
         lines.append(f"**URL:** {sound.source_url}")
 
-    # Duration (trimmed)
-    if sound.source_duration is not None:
-        trim_start = sound.timestamps.start or 0.0
-        trim_end = sound.timestamps.end or sound.source_duration
-        trimmed = trim_end - trim_start
-        if sound.timestamps.start or sound.timestamps.end:
-            lines.append(
-                f"**Duration:** {_format_duration(trimmed)} "
-                f"(trimmed from {_format_duration(sound.source_duration)})"
-            )
-        else:
-            lines.append(f"**Duration:** {_format_duration(trimmed)}")
+    # Measured final playable OGG duration, with optional source provenance.
+    if (
+        sound.source_duration is not None
+        and (sound.timestamps.start is not None or sound.timestamps.end is not None)
+    ):
+        duration = _format_duration(sound.duration)
+        source_duration = _format_duration(sound.source_duration)
+        lines.append(f"**Duration:** {duration} (trimmed from {source_duration})")
+    else:
+        lines.append(f"**Duration:** {_format_duration(sound.duration)}")
 
     if sound.volume_adjust != 0:
         lines.append(f"**Volume:** {sound.volume_display}")

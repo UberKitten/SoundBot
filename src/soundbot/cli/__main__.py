@@ -28,6 +28,23 @@ def main():
         help="Regenerate only a specific sound by name",
     )
 
+    backfill_parser = subparsers.add_parser(
+        "backfill-durations",
+        help="Validate and backfill final playable OGG durations",
+    )
+    _ = backfill_parser.add_argument("--state-file", type=str)
+    _ = backfill_parser.add_argument("--sounds-folder", type=str)
+    _ = backfill_parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Atomically write the fully validated backfill",
+    )
+    _ = backfill_parser.add_argument(
+        "--repair-duplicates",
+        action="store_true",
+        help="Copy duplicate playable storage to deterministic unique directories",
+    )
+
     # Check sounds command
     check_parser = subparsers.add_parser(
         "check-sounds",
@@ -79,6 +96,30 @@ def main():
                 sound_name=args.sound,
             )
         )
+    elif args.command == "backfill-durations":
+        from pathlib import Path
+
+        from soundbot.cli.backfill_durations import backfill_durations
+        from soundbot.core.settings import settings
+
+        state_file = Path(args.state_file or settings.state_file)
+        sounds_folder = Path(args.sounds_folder or settings.sounds_folder)
+        try:
+            result = asyncio.run(
+                backfill_durations(
+                    state_file,
+                    sounds_folder,
+                    write=args.write,
+                    repair_duplicates=args.repair_duplicates,
+                )
+            )
+        except Exception as e:
+            print(f"Duration backfill failed: {e}")
+            sys.exit(1)
+        action = "Backfilled" if args.write else "Validated"
+        print(f"{action} {len(result.durations)} playable OGG durations")
+        if result.repairs:
+            print(f"Repaired {len(result.repairs)} duplicate playable paths")
     elif args.command == "check-sounds":
         from soundbot.cli.check_sounds import check_sounds
 

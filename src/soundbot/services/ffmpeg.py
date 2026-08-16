@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 import tempfile
 import time
 from decimal import Decimal
@@ -12,7 +13,10 @@ from typing import Optional
 from pydantic import BaseModel
 
 from soundbot.core.settings import settings
-from soundbot.models.sounds import canonicalize_trim_timestamp
+from soundbot.models.sounds import (
+    canonicalize_trim_timestamp,
+    validate_playable_duration,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,7 @@ class ProcessResult(BaseModel):
     output_file: Optional[Path] = None
     error: Optional[str] = None
     duration_seconds: Optional[float] = None  # How long the processing took
+    media_duration_seconds: Optional[float] = None  # Duration of the output media
     # For make_browser_video: True when the video stream was stream-copied
     # (remux) instead of re-encoded. None for other operations.
     remuxed: Optional[bool] = None
@@ -143,55 +148,45 @@ class FFmpegService:
         end: Optional[float] = None,
         volume_db: float = 0.0,
     ) -> ProcessResult:
-        """
-        Extract audio from input, trim, normalize, and optimize for Discord.
-
-        Uses loudnorm filter for EBU R128 normalization.
-        Output is opus in ogg container for best Discord compatibility.
-
-        volume_db: dB adjustment applied after normalization (negative = quieter).
-        """
+        """Create and verify the final playable OGG before atomically replacing it."""
         try:
-            args = ["ffmpeg", "-y", *_trim_input_args(input_file, start, end)]
+            input_args = _trim_input_args(input_file, start, end)
         except ValueError as e:
             logger.error(f"Invalid audio trim timestamps: {e}")
             return ProcessResult(success=False, error=str(e))
 
-        # Audio filters
-        filters = []
-
-        # EBU R128 loudness normalization
-        # Target LUFS from settings, with true peak at -1.5 dBTP
-        target_lufs = settings.audio_target_lufs
-        filters.append(f"loudnorm=I={target_lufs}:TP=-1.5:LRA=11")
-
-        # Per-sound volume adjustment in dB (applied after normalization)
-        if volume_db != 0.0:
-            filters.append(f"volume={volume_db}dB")
-        # Rebuild a contiguous sample timeline after filters that may preserve PTS holes.
-        filters.append("asetpts=N/SR/TB")
-
-        if filters:
-            args.extend(["-af", ",".join(filters)])
-
-        # Output settings optimized for Discord
-        args.extend(
-            [
-                "-vn",  # No video
-                "-ar",
-                str(self.DISCORD_SAMPLE_RATE),
-                "-ac",
-                str(self.DISCORD_CHANNELS),
-                "-c:a",
-                "libopus",
-                "-b:a",
-                self.DISCORD_BITRATE,
-                str(output_file),
-            ]
-        )
-
+        temp_output: Optional[Path] = None
         try:
             output_file.parent.mkdir(parents=True, exist_ok=True)
+            temp_handle = tempfile.NamedTemporaryFile(
+                dir=output_file.parent,
+                prefix=f".{output_file.stem}.",
+                suffix=".ogg",
+                delete=False,
+            )
+            temp_output = Path(temp_handle.name)
+            temp_handle.close()
+
+            args = ["ffmpeg", "-y", *input_args]
+            filters = [f"loudnorm=I={settings.audio_target_lufs}:TP=-1.5:LRA=11"]
+            if volume_db != 0.0:
+                filters.append(f"volume={volume_db}dB")
+            filters.append("asetpts=N/SR/TB")
+            args.extend(["-af", ",".join(filters)])
+            args.extend(
+                [
+                    "-vn",
+                    "-ar",
+                    str(self.DISCORD_SAMPLE_RATE),
+                    "-ac",
+                    str(self.DISCORD_CHANNELS),
+                    "-c:a",
+                    "libopus",
+                    "-b:a",
+                    self.DISCORD_BITRATE,
+                    str(temp_output),
+                ]
+            )
 
             start_time = time.monotonic()
             logger.info(f"Processing audio: {input_file} -> {output_file}")
@@ -210,13 +205,37 @@ class FFmpegService:
                     success=False, error=error, duration_seconds=elapsed
                 )
 
-            return ProcessResult(
-                success=True, output_file=output_file, duration_seconds=elapsed
-            )
+            probe = await self.probe(temp_output)
+            if not probe or not probe.has_audio:
+                error = "Failed to verify playable OGG: no audio stream"
+                logger.error(f"{error} ({temp_output})")
+                return ProcessResult(
+                    success=False, error=error, duration_seconds=elapsed
+                )
+            try:
+                duration = validate_playable_duration(
+                    probe.duration if probe.duration is not None else 0.0
+                )
+            except ValueError as e:
+                error = f"Failed to verify playable OGG duration: {e}"
+                logger.error(f"{error} ({temp_output})")
+                return ProcessResult(
+                    success=False, error=error, duration_seconds=elapsed
+                )
 
+            os.replace(temp_output, output_file)
+            return ProcessResult(
+                success=True,
+                output_file=output_file,
+                duration_seconds=elapsed,
+                media_duration_seconds=duration,
+            )
         except Exception as e:
             logger.error(f"Error processing audio: {e}")
             return ProcessResult(success=False, error=str(e))
+        finally:
+            if temp_output is not None:
+                temp_output.unlink(missing_ok=True)
 
     async def trim_video(
         self,

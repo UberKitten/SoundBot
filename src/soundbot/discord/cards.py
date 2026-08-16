@@ -41,19 +41,15 @@ def _format_duration(seconds: Optional[float]) -> str:
     return f"{secs}s"
 
 
-def _trimmed_duration_text(sound: Sound) -> Optional[str]:
-    """Duration of the playable clip, noting the original when trimmed."""
-    if sound.source_duration is None:
-        return None
-    trim_start = sound.timestamps.start or 0.0
-    trim_end = sound.timestamps.end or sound.source_duration
-    trimmed = trim_end - trim_start
-    if sound.timestamps.start or sound.timestamps.end:
-        return (
-            f"{_format_duration(trimmed)} "
-            f"(trimmed from {_format_duration(sound.source_duration)})"
-        )
-    return _format_duration(trimmed)
+def _trimmed_duration_text(sound: Sound) -> str:
+    """Measured playable duration, with optional original-source provenance."""
+    playable = _format_duration(sound.duration)
+    if (
+        sound.source_duration is not None
+        and (sound.timestamps.start is not None or sound.timestamps.end is not None)
+    ):
+        return f"{playable} (trimmed from {_format_duration(sound.source_duration)})"
+    return playable
 
 
 _YOUTUBE_HOSTS = {
@@ -96,9 +92,9 @@ def build_play_card(name: str, sound: Sound) -> discord.Embed:
     if sound.source_url:
         _ = embed.add_field(name="Source", value=sound.source_url, inline=False)
 
-    duration_text = _trimmed_duration_text(sound)
-    if duration_text is not None:
-        _ = embed.add_field(name="Duration", value=duration_text, inline=True)
+    _ = embed.add_field(
+        name="Duration", value=_trimmed_duration_text(sound), inline=True
+    )
 
     _ = embed.add_field(name="Plays", value=str(sound.discord.plays), inline=True)
 

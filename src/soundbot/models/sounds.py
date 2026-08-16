@@ -1,4 +1,7 @@
+import hashlib
 import math
+import re
+from collections.abc import Collection
 from datetime import datetime
 from typing import Any, Literal, Optional
 
@@ -11,6 +14,29 @@ RandomMode = Literal["together", "separate"]
 TRIM_TIME_ZERO_EPSILON = 1e-6
 
 
+def sanitize_name(name: str) -> str:
+    """Sanitize a sound name into the established persisted path form."""
+    name = re.sub(r'[<>:"/\\|?*]', "", name)
+    name = re.sub(r"\s+", "_", name)
+    return name.lower().strip("_")[:50]
+
+
+def allocate_sound_directory(name: str, used_directories: Collection[str]) -> str:
+    """Allocate a deterministic collision-safe directory for a new sound."""
+    base = sanitize_name(name)
+    if not base:
+        raise ValueError(f"'{name}' is not a valid sound name")
+    used = set(used_directories)
+    if base not in used:
+        return base
+    for nonce in range(1000):
+        suffix = hashlib.sha256(f"{name.lower()}:{nonce}".encode()).hexdigest()[:10]
+        candidate = f"{base[:39]}-{suffix}"
+        if candidate not in used:
+            return candidate
+    raise ValueError(f"Could not allocate unique storage for sound '{name}'")
+
+
 def canonicalize_trim_timestamp(value: Optional[float]) -> Optional[float]:
     """Collapse unrepresentable boundary noise while preserving real trim precision."""
     if value is None:
@@ -19,6 +45,14 @@ def canonicalize_trim_timestamp(value: Optional[float]) -> Optional[float]:
         raise ValueError("Trim timestamps must be finite")
     if abs(value) <= TRIM_TIME_ZERO_EPSILON:
         return 0.0
+    return value
+
+
+
+def validate_playable_duration(value: float) -> float:
+    """Require a finite, positive duration measured from the playable OGG."""
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("Playable OGG duration must be finite and greater than zero")
     return value
 
 
@@ -60,6 +94,7 @@ class Sound(BaseModel):
     source_url: Optional[str] = None
     source_title: Optional[str] = None
     source_duration: Optional[float] = None  # Original duration in seconds
+    duration: float  # Final playable OGG duration in seconds
 
     # Trim settings
     timestamps: Timestamps = Field(default_factory=Timestamps)
@@ -68,6 +103,11 @@ class Sound(BaseModel):
     # 0 = normal, negative = quieter, positive = louder
     # Range: -5 to +3 (reasonable limits)
     volume_adjust: int = 0
+
+    @field_validator("duration")
+    @classmethod
+    def validate_duration(cls, value: float) -> float:
+        return validate_playable_duration(value)
 
     @model_validator(mode="before")
     @classmethod

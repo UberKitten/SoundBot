@@ -896,17 +896,7 @@ class SoundCommands(commands.Cog):
             sound = sound_service.get_sound(name)
             if not sound:
                 return False
-            duration = None
-            if sound.timestamps.start is not None or sound.timestamps.end is not None:
-                start = sound.timestamps.start or 0
-                end = sound.timestamps.end or sound.source_duration
-                if end:
-                    duration = end - start
-            elif sound.source_duration:
-                duration = sound.source_duration
-            if duration is None:
-                return max_length is None
-            return duration <= duration_limit
+            return sound.duration <= duration_limit
 
         # If a group is specified, pick from just that group
         if group is not None:
@@ -1122,19 +1112,8 @@ class SoundCommands(commands.Cog):
         member = interaction.guild.get_member(interaction.user.id)
         title = download_result.title or "Quick play"
 
-        # Compute playback duration from the source duration and trim window,
-        # falling back to probing the output if metadata is missing.
-        duration: Optional[float] = None
-        if download_result.duration is not None:
-            trim_start = start_seconds or 0.0
-            trim_end = (
-                end_seconds if end_seconds is not None else download_result.duration
-            )
-            duration = max(0.0, trim_end - trim_start)
-        if duration is None:
-            probe = await ffmpeg_service.probe(temp_audio)
-            if probe is not None:
-                duration = probe.duration
+        # extract_and_normalize_audio already verified the final playable OGG.
+        duration = audio_result.media_duration_seconds
 
         success, message = await voice_service.play_sound(
             interaction.guild,

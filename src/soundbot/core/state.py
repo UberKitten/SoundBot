@@ -3,13 +3,11 @@ import fcntl
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict
 
 import orjson
-from pydantic import BaseModel, model_validator
 
 from soundbot.core.settings import settings
-from soundbot.models.sounds import Sound, SoundGroupData
+from soundbot.models.state import StateDocument, atomic_write_json
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +26,7 @@ def _acquire_lock():
         _lock_file.flush()
     except OSError:
         logger.critical(
-            "Another SoundBot instance is already running (could not acquire lock on %s). "
-            "Kill the other process first.",
+            "Another SoundBot instance is already running (could not acquire lock on %s). Kill the other process first.",
             lock_path,
         )
         sys.exit(1)
@@ -47,28 +44,11 @@ def _release_lock():
         _lock_file = None
 
 
-class State(BaseModel):
-    entrances: Dict[str, str] = {}
-    exits: Dict[str, str] = {}
-
-    sounds: Dict[str, Sound] = {}
-    groups: Dict[str, SoundGroupData] = {}
-
-    @model_validator(mode="before")
-    @classmethod
-    def migrate_groups(cls, data: Any) -> Any:
-        """Migrate groups from old list[str] format to SoundGroupData."""
-        if isinstance(data, dict) and "groups" in data:
-            groups = data["groups"]
-            for name, value in groups.items():
-                if isinstance(value, list):
-                    groups[name] = {"members": value}
-        return data
-
+class State(StateDocument):
     def save(self):
-        _ = Path(settings.state_file).write_text(
-            self.model_dump_json(indent=2),
-            encoding="utf-8",
+        atomic_write_json(
+            Path(settings.state_file),
+            self.model_dump(mode="json"),
         )
 
     @staticmethod
@@ -77,8 +57,7 @@ class State(BaseModel):
         if path.exists():
             json_object = orjson.loads(path.read_text())
             return State(**json_object)
-        else:
-            return State()
+        return State()
 
 
 # Acquire lock before loading state

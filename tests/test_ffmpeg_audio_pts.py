@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from soundbot.core.settings import settings
-from soundbot.services.ffmpeg import FFmpegService
+from soundbot.services.ffmpeg import FFmpegService, ProbeResult
 
 FFMPEG = shutil.which("ffmpeg")
 FFPROBE = shutil.which("ffprobe")
@@ -110,8 +110,13 @@ async def test_audio_pts_compaction_is_the_final_filter(
         return SuccessfulProcess()
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
+    async def probe(_path: Path) -> ProbeResult:
+        return ProbeResult(duration=3.924, has_audio=True)
 
-    result = await FFmpegService().extract_and_normalize_audio(
+    service = FFmpegService()
+    monkeypatch.setattr(service, "probe", probe)
+
+    result = await service.extract_and_normalize_audio(
         tmp_path / "input.mkv",
         tmp_path / "output.ogg",
         volume_db=VOLUME_DB,

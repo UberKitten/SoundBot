@@ -3,8 +3,9 @@
 from pathlib import Path
 from typing import Optional
 
+from soundbot.models.sounds import sanitize_name
 from soundbot.services.ffmpeg import ffmpeg_service
-from soundbot.services.sounds import sanitize_name, sound_service
+from soundbot.services.sounds import sound_service
 
 
 def parse_timestamp(value: str) -> float:

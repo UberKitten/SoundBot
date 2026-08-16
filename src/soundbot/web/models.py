@@ -14,6 +14,7 @@ class SoundResponse(BaseModel):
     source_url: Optional[str] = None
     source_title: Optional[str] = None
     source_duration: Optional[float] = None  # Original duration in seconds
+    duration: float  # Final playable OGG duration in seconds
     # Trim settings
     trim_start: Optional[float] = None
     trim_end: Optional[float] = None

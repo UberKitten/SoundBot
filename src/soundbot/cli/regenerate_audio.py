@@ -13,7 +13,6 @@ from soundbot.core.settings import settings
 from soundbot.core.state import state
 from soundbot.models.sounds import Sound
 from soundbot.services.ffmpeg import ffmpeg_service
-from soundbot.services.sounds import sanitize_name
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +25,7 @@ class ProcessResult:
     success: bool
     message: str
     skipped: bool = False
+    playable_duration: float | None = None
 
 
 async def _process_sound(
@@ -40,8 +40,7 @@ async def _process_sound(
         # Get paths
         sound_dir = sounds_dir / sound.directory
         original_file = sound_dir / sound.files.original
-        safe_name = sanitize_name(name)
-        audio_file = sound_dir / f"{safe_name}.ogg"
+        audio_file = sound_dir / sound.files.trimmed_audio
 
         # Check if original exists
         if not original_file.exists():
@@ -73,7 +72,9 @@ async def _process_sound(
             volume_db=sound.volume_db,
         )
 
-        if result.success:
+        playable_duration = result.media_duration_seconds
+        if result.success and playable_duration is not None:
+            sound.duration = playable_duration
             time_info = (
                 f" ({result.duration_seconds:.1f}s)" if result.duration_seconds else ""
             )
@@ -81,13 +82,13 @@ async def _process_sound(
                 name=name,
                 success=True,
                 message=f"Done{time_info}{info}",
+                playable_duration=playable_duration,
             )
-        else:
-            return ProcessResult(
-                name=name,
-                success=False,
-                message=f"Failed - {result.error}",
-            )
+        return ProcessResult(
+            name=name,
+            success=False,
+            message=f"Failed - {result.error or 'playable OGG duration unavailable'}",
+        )
 
 
 async def regenerate_audio_files(
@@ -144,6 +145,9 @@ async def regenerate_audio_files(
         else:
             print(f"❌ {result.name}: {result.message}")
             failed += 1
+
+    if processed and not dry_run:
+        _ = state.save()
 
     print("\n📊 Summary:")
     print(f"   ✅ Processed: {processed}")

@@ -46,7 +46,11 @@ def make_sound(directory: str = "snd", **overrides: object) -> Sound:
         original=f"{directory}_original.mkv",
         trimmed_audio=f"{directory}.ogg",
     )
-    return Sound(directory=directory, files=files, **overrides)  # type: ignore[arg-type]
+    return Sound(  # type: ignore[arg-type]
+        directory=directory,
+        files=files,
+        **{"duration": 1.0, **overrides},
+    )
 
 
 @pytest.fixture(autouse=True)

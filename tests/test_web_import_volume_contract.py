@@ -128,7 +128,9 @@ async def test_default_draft_import_still_uses_ffmpeg_loudness_normalization(
     probe = AsyncMock(
         return_value=ProbeResult(duration=9.0, has_audio=True, has_video=False)
     )
-    normalize = AsyncMock(return_value=ProcessResult(success=True))
+    normalize = AsyncMock(
+        return_value=ProcessResult(success=True, media_duration_seconds=3.75)
+    )
     monkeypatch.setattr(ffmpeg_service, "probe", probe)
     monkeypatch.setattr(ffmpeg_service, "extract_and_normalize_audio", normalize)
 
@@ -153,3 +155,4 @@ async def test_default_draft_import_still_uses_ffmpeg_loudness_normalization(
         volume_db=0.0,
     )
     assert state.sounds["air horn"].volume_adjust == 0
+    assert state.sounds["air horn"].duration == 3.75

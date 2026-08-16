@@ -3,7 +3,6 @@
 import json
 import logging
 import random
-import re
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -13,11 +12,13 @@ from typing import Callable, Optional
 from soundbot.core.settings import settings
 from soundbot.core.state import state
 from soundbot.models.sounds import (
+    allocate_sound_directory,
     RandomMode,
     Sound,
     SoundFiles,
     SoundGroupData,
     Timestamps,
+    sanitize_name,
 )
 from soundbot.services.clips import ClipError, ensure_clip
 from soundbot.services.ffmpeg import ffmpeg_service
@@ -34,13 +35,6 @@ SoundUpdateCallback = Callable[[str, datetime, str], None]
 GroupUpdateCallback = Callable[[str, SoundGroupData, str], None]
 
 
-def sanitize_name(name: str) -> str:
-    """Sanitize a sound name for use as a directory name."""
-    # Remove or replace invalid characters
-    name = re.sub(r'[<>:"/\\|?*]', "", name)
-    name = re.sub(r"\s+", "_", name)
-    name = name.lower().strip("_")
-    return name[:50]  # Limit length
 
 
 def clean_release_filename(stem: str) -> str:
@@ -154,9 +148,6 @@ class SoundService:
         if result is not None and result.generated and result.duration_seconds:
             timings["Clip generation"] = result.duration_seconds
 
-    def get_sound_dir(self, name: str) -> Path:
-        """Get the directory for a specific sound."""
-        return self.sounds_dir / sanitize_name(name)
 
     def read_metadata(self, sound: Sound) -> Optional[dict[str, object]]:
         """Read the sound's yt-dlp metadata.json.
@@ -307,7 +298,17 @@ class SoundService:
             old_created = None
             old_added_by = None
 
-        sound_dir = self.get_sound_dir(name)
+        if existing_sound:
+            safe_name = existing_sound.directory
+        else:
+            try:
+                safe_name = allocate_sound_directory(
+                    name, [sound.directory for sound in state.sounds.values()]
+                )
+            except ValueError as e:
+                return OperationResult(success=False, message=str(e))
+
+        sound_dir = self.sounds_dir / safe_name
 
         # Download the source (updates yt-dlp before download)
         download_result = await ytdlp_service.download(url, sound_dir, safe_name)
@@ -348,11 +349,12 @@ class SoundService:
         if audio_result.duration_seconds:
             timings["Audio processing"] = audio_result.duration_seconds
 
-        if not audio_result.success:
+        playable_duration = audio_result.media_duration_seconds
+        if not audio_result.success or playable_duration is None:
             shutil.rmtree(sound_dir)
             return OperationResult(
                 success=False,
-                message=f"Failed to process audio: {audio_result.error}",
+                message=f"Failed to process audio: {audio_result.error or 'playable OGG duration unavailable'}",
                 timings=timings,
             )
 
@@ -397,6 +399,7 @@ class SoundService:
             source_url=download_result.canonical_url or url,
             source_title=download_result.title,
             source_duration=download_result.duration,
+            duration=playable_duration,
             timestamps=Timestamps(start=start, end=end),
             volume_adjust=volume_adjust,
             created=final_created,
@@ -488,6 +491,16 @@ class SoundService:
             old_created = None
             old_added_by = None
 
+        if existing_sound:
+            safe_name = existing_sound.directory
+        else:
+            try:
+                safe_name = allocate_sound_directory(
+                    name, [sound.directory for sound in state.sounds.values()]
+                )
+            except ValueError as e:
+                return OperationResult(success=False, message=str(e))
+
         # Probe source for title + duration before we do work
         probe = await ffmpeg_service.probe(video_path)
         if not probe or not probe.has_audio:
@@ -496,7 +509,7 @@ class SoundService:
                 message="Source has no audio stream",
             )
 
-        sound_dir = self.get_sound_dir(name)
+        sound_dir = self.sounds_dir / safe_name
         sound_dir.mkdir(parents=True, exist_ok=True)
 
         # Process audio for Discord
@@ -512,11 +525,12 @@ class SoundService:
         if audio_result.duration_seconds:
             timings["Audio processing"] = audio_result.duration_seconds
 
-        if not audio_result.success:
+        playable_duration = audio_result.media_duration_seconds
+        if not audio_result.success or playable_duration is None:
             shutil.rmtree(sound_dir)
             return OperationResult(
                 success=False,
-                message=f"Failed to process audio: {audio_result.error}",
+                message=f"Failed to process audio: {audio_result.error or 'playable OGG duration unavailable'}",
                 timings=timings,
             )
 
@@ -554,6 +568,7 @@ class SoundService:
             # (most rips do not — VLC fabricates one from the filename).
             source_title=probe.title or clean_release_filename(video_path.stem),
             source_duration=probe.duration,
+            duration=playable_duration,
             timestamps=Timestamps(start=start, end=end),
             volume_adjust=volume_adjust,
             created=final_created,
@@ -656,7 +671,17 @@ class SoundService:
             old_created = None
             old_added_by = None
 
-        sound_dir = self.get_sound_dir(name)
+        if existing_sound:
+            safe_name = existing_sound.directory
+        else:
+            try:
+                safe_name = allocate_sound_directory(
+                    name, [sound.directory for sound in state.sounds.values()]
+                )
+            except ValueError as e:
+                return OperationResult(success=False, message=str(e))
+
+        sound_dir = self.sounds_dir / safe_name
         sound_dir.mkdir(parents=True, exist_ok=True)
 
         # Determine file extension from original filename
@@ -700,11 +725,12 @@ class SoundService:
         if audio_result.duration_seconds:
             timings["Audio processing"] = audio_result.duration_seconds
 
-        if not audio_result.success:
+        playable_duration = audio_result.media_duration_seconds
+        if not audio_result.success or playable_duration is None:
             shutil.rmtree(sound_dir)
             return OperationResult(
                 success=False,
-                message=f"Failed to process audio: {audio_result.error}",
+                message=f"Failed to process audio: {audio_result.error or 'playable OGG duration unavailable'}",
                 timings=timings,
             )
 
@@ -725,6 +751,7 @@ class SoundService:
             source_url=source_url,
             source_title=None,
             source_duration=probe.duration,
+            duration=playable_duration,
             timestamps=Timestamps(start=start, end=end),
             volume_adjust=volume_adjust,
             created=final_created,
@@ -810,7 +837,14 @@ class SoundService:
                 message=f"Sound '{name}' already exists",
             )
 
-        sound_dir = self.get_sound_dir(name)
+        try:
+            safe_name = allocate_sound_directory(
+                name, [sound.directory for sound in state.sounds.values()]
+            )
+        except ValueError as e:
+            return OperationResult(success=False, message=str(e))
+
+        sound_dir = self.sounds_dir / safe_name
         sound_dir.mkdir(parents=True, exist_ok=True)
 
         # Copy the source into the sound dir as the original
@@ -854,11 +888,12 @@ class SoundService:
         if audio_result.duration_seconds:
             timings["Audio processing"] = audio_result.duration_seconds
 
-        if not audio_result.success:
+        playable_duration = audio_result.media_duration_seconds
+        if not audio_result.success or playable_duration is None:
             shutil.rmtree(sound_dir)
             return OperationResult(
                 success=False,
-                message=f"Failed to process audio: {audio_result.error}",
+                message=f"Failed to process audio: {audio_result.error or 'playable OGG duration unavailable'}",
                 timings=timings,
             )
 
@@ -889,6 +924,7 @@ class SoundService:
             source_url=source_url,
             source_title=source_title,
             source_duration=probe.duration,
+            duration=playable_duration,
             timestamps=Timestamps(start=start, end=end),
             volume_adjust=volume_adjust,
             created=datetime.now(),
@@ -966,8 +1002,7 @@ class SoundService:
             )
 
         # Re-process audio
-        safe_name = sanitize_name(name)
-        audio_file = sound_dir / f"{safe_name}.ogg"
+        audio_file = sound_dir / sound.files.trimmed_audio
         audio_result = await ffmpeg_service.extract_and_normalize_audio(
             original_file,
             audio_file,
@@ -978,10 +1013,11 @@ class SoundService:
         if audio_result.duration_seconds:
             timings["Audio processing"] = audio_result.duration_seconds
 
-        if not audio_result.success:
+        playable_duration = audio_result.media_duration_seconds
+        if not audio_result.success or playable_duration is None:
             return OperationResult(
                 success=False,
-                message=f"Failed to process audio: {audio_result.error}",
+                message=f"Failed to process audio: {audio_result.error or 'playable OGG duration unavailable'}",
                 timings=timings,
             )
 
@@ -999,6 +1035,7 @@ class SoundService:
                 timings["Video trimming"] = video_result.duration_seconds
 
         # Update sound entry
+        sound.duration = playable_duration
         sound.timestamps = Timestamps(start=new_start, end=new_end)
         sound.modified = datetime.now()
         _ = state.save()
@@ -1051,8 +1088,7 @@ class SoundService:
             )
 
         # Re-process audio with new volume
-        safe_name = sanitize_name(name)
-        audio_file = sound_dir / f"{safe_name}.ogg"
+        audio_file = sound_dir / sound.files.trimmed_audio
         volume_db = volume_adjust * 3.0
 
         audio_result = await ffmpeg_service.extract_and_normalize_audio(
@@ -1065,14 +1101,16 @@ class SoundService:
         if audio_result.duration_seconds:
             timings["Audio processing"] = audio_result.duration_seconds
 
-        if not audio_result.success:
+        playable_duration = audio_result.media_duration_seconds
+        if not audio_result.success or playable_duration is None:
             return OperationResult(
                 success=False,
-                message=f"Failed to process audio: {audio_result.error}",
+                message=f"Failed to process audio: {audio_result.error or 'playable OGG duration unavailable'}",
                 timings=timings,
             )
 
         # Update sound entry
+        sound.duration = playable_duration
         sound.volume_adjust = volume_adjust
         sound.modified = datetime.now()
         _ = state.save()
@@ -1173,10 +1211,11 @@ class SoundService:
             if audio_result.duration_seconds:
                 timings["Audio processing"] = audio_result.duration_seconds
 
-            if not audio_result.success:
+            playable_duration = audio_result.media_duration_seconds
+            if not audio_result.success or playable_duration is None:
                 return OperationResult(
                     success=False,
-                    message=f"Failed to process audio: {audio_result.error}",
+                    message=f"Failed to process audio: {audio_result.error or 'playable OGG duration unavailable'}",
                     timings=timings,
                 )
 
@@ -1217,6 +1256,7 @@ class SoundService:
                 if download_result.subtitles_file
                 else None,
             )
+            sound.duration = playable_duration
             sound.source_title = download_result.title
             sound.source_duration = download_result.duration
             sound.modified = datetime.now()
@@ -1545,21 +1585,9 @@ class SoundService:
         return self.sounds_dir / sound.directory / sound.files.trimmed_audio
 
     def get_sound_duration(self, name: str) -> Optional[float]:
-        """Get the duration of a sound in seconds (accounting for trim)."""
+        """Get the measured duration of the final playable OGG."""
         sound = self.get_sound(name)
-        if not sound:
-            return None
-
-        # Start with source duration if available
-        duration = sound.source_duration
-        if duration is None:
-            return None
-
-        # Apply trim timestamps
-        trim_start = sound.timestamps.start or 0.0
-        trim_end = sound.timestamps.end or duration
-
-        return trim_end - trim_start
+        return sound.duration if sound else None
 
     async def regenerate_all_audio(
         self, progress_callback: Optional[Callable[[int, int, str], None]] = None
@@ -1603,13 +1631,17 @@ class SoundService:
                 volume_db=sound.volume_adjust * 3.0,  # Each notch = 3dB
             )
 
-            if audio_result.success:
+            playable_duration = audio_result.media_duration_seconds
+            if audio_result.success and playable_duration is not None:
+                sound.duration = playable_duration
                 success_count += 1
             else:
-                logger.error(
-                    f"Failed to regenerate audio for '{name}': {audio_result.error}"
-                )
+                error = audio_result.error or "playable OGG duration unavailable"
+                logger.error(f"Failed to regenerate audio for '{name}': {error}")
                 failed.append(name)
+
+        if success_count:
+            _ = state.save()
 
         return success_count, len(failed), failed
 

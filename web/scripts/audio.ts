@@ -34,6 +34,7 @@ export interface Sound {
   source_url: string | null;
   source_title: string | null;
   source_duration: number | null;
+  duration: number;
   trim_start: number | null;
   trim_end: number | null;
   volume: number;

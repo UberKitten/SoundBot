@@ -30,6 +30,7 @@ async def get_sounds():
                 source_url=sound.source_url,
                 source_title=sound.source_title,
                 source_duration=sound.source_duration,
+                duration=sound.duration,
                 trim_start=sound.timestamps.start,
                 trim_end=sound.timestamps.end,
                 volume_adjust=sound.volume_adjust,
