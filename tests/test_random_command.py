@@ -92,6 +92,32 @@ async def test_random_omission_keeps_120_second_default(
 
 
 @pytest.mark.asyncio
+async def test_random_omission_keeps_unknown_duration_eligible(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state.sounds["unknown-duration"] = make_sound()
+
+    _, played = await run_random(monkeypatch)
+
+    assert played == ["unknown-duration"]
+
+
+@pytest.mark.asyncio
+async def test_random_custom_cap_excludes_unknown_duration_and_reports_none_eligible(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state.sounds["unknown-duration"] = make_sound()
+
+    interaction, played = await run_random(monkeypatch, max_length=5.0)
+
+    assert played == []
+    assert interaction.response.messages == [
+        ("❌ No sounds at or under 5 seconds available", True)
+    ]
+    assert not interaction.response.deferred
+
+
+@pytest.mark.asyncio
 async def test_random_custom_cap_excludes_longer_sounds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

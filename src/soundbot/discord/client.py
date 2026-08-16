@@ -904,7 +904,9 @@ class SoundCommands(commands.Cog):
                     duration = end - start
             elif sound.source_duration:
                 duration = sound.source_duration
-            return duration is None or duration <= duration_limit
+            if duration is None:
+                return max_length is None
+            return duration <= duration_limit
 
         # If a group is specified, pick from just that group
         if group is not None:
