@@ -83,6 +83,8 @@ docker-compose up --build
 | `test_guild_ids` | Comma-separated guild IDs for command registration |
 | `SOUNDBOT_PORT_8080` | Host port to map to container port 8080 |
 | `DOCKERCONFDIR` | Base path for config/data volumes |
+| `YTDLP_POT_PROVIDER_URL` | Internal bgutil POT provider URL (default `http://192.168.0.10:4416`) |
+| `YTDLP_COOKIES_FILE` | Optional cookies file used for one retry after an anonymous yt-dlp failure; in Docker, bind the client-local file read-only (the example path is `/run/secrets/yt-dlp-cookies.txt`) |
 
 ## Project Structure
 

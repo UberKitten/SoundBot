@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     # When changing, run: uv run python -m soundbot.cli regenerate-audio
     audio_target_lufs: float = -20.0
 
+    # Shared bgutil POT provider used by yt-dlp's YouTube extractor.
+    ytdlp_pot_provider_url: str = "http://192.168.0.10:4416"
+    # Optional Netscape-format cookies file. It is checked only after an
+    # anonymous request fails, so a missing file does not prevent startup.
+    ytdlp_cookies_file: Optional[str] = None
+
     # --- Discord OAuth admin auth (all optional) ---
     # When these are unset, auth endpoints return 503 and the site stays
     # anonymous/read-only. Set client id/secret + session secret to enable

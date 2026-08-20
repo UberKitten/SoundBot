@@ -52,10 +52,12 @@ COPY --from=python-builder /app/dist ./dist
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 RUN uv pip install --python .venv/bin/python ./dist/*.whl
 
-# Upgrade yt-dlp to the latest release at build time. `yt-dlp --update` is a
-# no-op for wheel installs, so use uv to actually bump the package. No `|| true`:
-# if the latest yt-dlp can't be fetched, fail the build loudly.
-RUN uv pip install --python .venv/bin/python --upgrade yt-dlp
+# Upgrade yt-dlp to the latest release at build time and keep its POT provider
+# pinned to the tested version. `yt-dlp --update` is a no-op for wheel installs,
+# so use uv to actually update the runtime environment. No `|| true`: dependency
+# failures must fail the build loudly.
+RUN uv pip install --python .venv/bin/python --upgrade \
+    yt-dlp "bgutil-ytdlp-pot-provider==1.3.1"
 
 # Run as non-root so bind-mounted host dirs (sounds/, config/) get the
 # expected ownership (uid 1000) instead of root.

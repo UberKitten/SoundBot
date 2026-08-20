@@ -13,6 +13,8 @@ from typing import Any, Optional, override
 
 from pydantic import BaseModel
 
+from soundbot.core.settings import settings
+
 logger = logging.getLogger(__name__)
 
 # Cache the yt-dlp command and environment to avoid recalculating
@@ -116,6 +118,113 @@ def _get_clean_env() -> dict[str, str]:
 
     _ytdlp_env = env
     return _ytdlp_env.copy()
+
+
+def _get_configured_cookies_file() -> Optional[Path]:
+    """Return the configured cookies file only when it is currently usable."""
+    if not settings.ytdlp_cookies_file:
+        return None
+
+    cookies_file = Path(settings.ytdlp_cookies_file).expanduser()
+    try:
+        return cookies_file.resolve() if cookies_file.is_file() else None
+    except OSError:
+        return None
+
+
+def _youtube_provider_args() -> list[str]:
+    """Build the shared YouTube POT provider extractor arguments."""
+    return [
+        "--extractor-args",
+        "youtube:player_client=mweb",
+        "--extractor-args",
+        f"youtubepot-bgutilhttp:base_url={settings.ytdlp_pot_provider_url}",
+    ]
+
+
+def _with_cookies(args: list[str], cookies_file: Optional[Path]) -> list[str]:
+    """Add a cookies file to an invocation without mutating the input list."""
+    result = args.copy()
+    if cookies_file is not None:
+        result.extend(["--cookies", str(cookies_file)])
+    return result
+
+
+def _build_download_args(
+    url: str,
+    output_template: str,
+    cookies_file: Optional[Path] = None,
+) -> list[str]:
+    """Build a complete yt-dlp download invocation."""
+    args = _get_ytdlp_command()
+    args.extend(
+        [
+            url,
+            "--output",
+            output_template,
+            # Only download single video, not entire playlist
+            "--no-playlist",
+            # Best quality video+audio, or best audio only
+            "--format",
+            "bestvideo+bestaudio/best/bestaudio",
+            # Write metadata to JSON
+            "--write-info-json",
+            # Embed metadata in file
+            "--embed-metadata",
+            # Don't overwrite existing files
+            "--no-overwrites",
+            # Output JSON info to stdout for parsing
+            "--print-json",
+            # Merge to mkv to preserve all streams
+            "--merge-output-format",
+            "mkv",
+            # Use Node.js for YouTube extraction with EJS challenge solver
+            "--js-runtimes",
+            "node",
+            "--remote-components",
+            "ejs:github",
+            *_youtube_provider_args(),
+        ]
+    )
+    return _with_cookies(args, cookies_file)
+
+
+def _build_video_info_args(
+    url: str, cookies_file: Optional[Path] = None
+) -> list[str]:
+    """Build a complete yt-dlp metadata invocation."""
+    args = _get_ytdlp_command()
+    args.extend(
+        [
+            url,
+            "--dump-json",
+            "--no-download",
+            "--js-runtimes",
+            "node",
+            "--remote-components",
+            "ejs:github",
+            *_youtube_provider_args(),
+        ]
+    )
+    return _with_cookies(args, cookies_file)
+
+
+def _redact_cookie_path(text: str, cookies_file: Optional[Path]) -> str:
+    """Keep a configured cookie path out of logs and returned errors."""
+    if cookies_file is None:
+        return text
+    return text.replace(str(cookies_file), "<cookies-file>")
+
+
+def _command_for_log(args: list[str]) -> str:
+    """Format an invocation without exposing the configured cookies path."""
+    safe_args = args.copy()
+    try:
+        cookies_index = safe_args.index("--cookies") + 1
+        safe_args[cookies_index] = "<cookies-file>"
+    except (ValueError, IndexError):
+        pass
+    return " ".join(safe_args)
 
 
 class StepTiming(BaseModel):
@@ -227,6 +336,8 @@ class YtdlpService:
         url: str,
         output_dir: Path,
         sound_name: str,
+        *,
+        cookies_file: Optional[Path] = None,
     ) -> DownloadResult:
         """Internal download implementation."""
         timings: list[StepTiming] = []
@@ -239,49 +350,13 @@ class YtdlpService:
         metadata_file = output_dir / "metadata.json"
 
         # Build yt-dlp command
-        args = _get_ytdlp_command()
-
-        # Add arguments
-        args.extend(
-            [
-                url,
-                "--output",
-                output_template,
-                # Only download single video, not entire playlist
-                "--no-playlist",
-                # Best quality video+audio, or best audio only
-                "--format",
-                "bestvideo+bestaudio/best/bestaudio",
-                # Write metadata to JSON
-                "--write-info-json",
-                # Subtitles disabled temporarily to avoid rate limits
-                # "--write-subs",
-                # "--write-auto-subs",
-                # "--sub-langs",
-                # "en,en-US,en-GB",
-                # "--sub-format",
-                # "srt/vtt/best",
-                # Embed metadata in file
-                "--embed-metadata",
-                # Don't overwrite existing files
-                "--no-overwrites",
-                # Output JSON info to stdout for parsing
-                "--print-json",
-                # Merge to mkv to preserve all streams
-                "--merge-output-format",
-                "mkv",
-                # Use Node.js for YouTube extraction with EJS challenge solver
-                "--js-runtimes",
-                "node",
-                "--remote-components",
-                "ejs:github",
-            ]
-        )
+        args = _build_download_args(url, output_template, cookies_file)
 
         try:
             start_time = time.monotonic()
-            logger.info(f"Downloading {url} to {output_dir}")
-            logger.debug(f"Running: {' '.join(args)}")
+            auth_mode = "anonymous" if cookies_file is None else "configured cookies"
+            logger.info(f"Downloading {url} to {output_dir} ({auth_mode})")
+            logger.debug(f"Running: {_command_for_log(args)}")
 
             with _skip_debugger_subprocess_patch():
                 proc = await asyncio.create_subprocess_exec(
@@ -297,13 +372,16 @@ class YtdlpService:
             timings.append(StepTiming(step="Download", duration_seconds=download_time))
 
             # Always log stderr if present, even on success
-            if stderr:
-                stderr_text = stderr.decode().strip()
-                if stderr_text:
-                    logger.info(f"yt-dlp stderr: {stderr_text}")
+            stderr_text = (
+                _redact_cookie_path(stderr.decode().strip(), cookies_file)
+                if stderr
+                else ""
+            )
+            if stderr_text:
+                logger.info(f"yt-dlp stderr: {stderr_text}")
 
             if proc.returncode != 0:
-                error_msg = stderr.decode() if stderr else "Unknown error"
+                error_msg = stderr_text or "Unknown error"
                 logger.error(
                     f"yt-dlp failed with return code {proc.returncode}: {error_msg}"
                 )
@@ -415,8 +493,9 @@ class YtdlpService:
             )
 
         except Exception as e:
-            logger.error(f"Error downloading {url}: {e}")
-            return DownloadResult(success=False, error=str(e), timings=timings)
+            error = _redact_cookie_path(str(e), cookies_file)
+            logger.error(f"Error downloading {url}: {error}")
+            return DownloadResult(success=False, error=error, timings=timings)
 
     async def download(
         self,
@@ -437,9 +516,18 @@ class YtdlpService:
         if result.success:
             return result
 
-        # Download failed — try a fresh yt-dlp once, then retry.
+        cookies_file = _get_configured_cookies_file()
+        if settings.ytdlp_cookies_file and cookies_file is None:
+            logger.warning(
+                "Configured yt-dlp cookies file is unavailable; "
+                "continuing without cookies."
+            )
+
+        # Preserve the existing update-before-retry behavior. An available
+        # cookie file still gets its one retry if the update itself fails.
         logger.warning(
-            f"Download failed ({result.error}); updating yt-dlp and retrying once."
+            f"Anonymous download failed ({result.error}); "
+            "updating yt-dlp before retrying once."
         )
         start_time = time.monotonic()
         update_success, update_msg = await self.update_ytdlp()
@@ -447,9 +535,15 @@ class YtdlpService:
 
         if not update_success:
             logger.warning(f"yt-dlp update failed: {update_msg}")
-            return result
+            if cookies_file is None:
+                return result
 
-        retry = await self._do_download(url, output_dir, sound_name)
+        retry = await self._do_download(
+            url,
+            output_dir,
+            sound_name,
+            cookies_file=cookies_file,
+        )
         retry.timings.insert(
             0, StepTiming(step="yt-dlp update (retry)", duration_seconds=update_time)
         )
@@ -464,11 +558,15 @@ class YtdlpService:
         temp_dir = Path(tempfile.mkdtemp(prefix="soundbot_"))
         return await self.download(url, temp_dir, "quickplay")
 
-    async def get_video_info(self, url: str) -> Optional[dict[str, Any]]:
-        """Get video info without downloading."""
+    async def _get_video_info_once(
+        self, url: str, cookies_file: Optional[Path] = None
+    ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+        """Run one metadata invocation and return its result and safe error."""
         try:
-            cmd = _get_ytdlp_command() + [url, "--dump-json", "--no-download", "--js-runtimes", "node", "--remote-components", "ejs:github"]
-            logger.debug(f"Getting video info, command: {' '.join(cmd)}")
+            cmd = _build_video_info_args(url, cookies_file)
+            logger.debug(
+                f"Getting video info, command: {_command_for_log(cmd)}"
+            )
             with _skip_debugger_subprocess_patch():
                 proc = await asyncio.create_subprocess_exec(
                     *cmd,
@@ -479,14 +577,44 @@ class YtdlpService:
                 stdout, stderr = await proc.communicate()
 
             if proc.returncode == 0:
-                return json.loads(stdout.decode())
-            else:
-                if stderr:
-                    logger.error(f"Failed to get video info: {stderr.decode()}")
-                return None
+                return json.loads(stdout.decode()), None
+
+            error = (
+                _redact_cookie_path(stderr.decode().strip(), cookies_file)
+                if stderr
+                else "Unknown error"
+            )
+            return None, error
         except Exception as e:
-            logger.error(f"Error getting video info: {e}")
+            return None, _redact_cookie_path(str(e), cookies_file)
+
+    async def get_video_info(self, url: str) -> Optional[dict[str, Any]]:
+        """Get video info without downloading, anonymously when possible."""
+        info, error = await self._get_video_info_once(url)
+        if info is not None:
+            return info
+
+        cookies_file = _get_configured_cookies_file()
+        if cookies_file is None:
+            if settings.ytdlp_cookies_file:
+                logger.warning(
+                    "Configured yt-dlp cookies file is unavailable; "
+                    "not using cookies for video info."
+                )
+            logger.error(f"Failed to get video info: {error or 'Unknown error'}")
             return None
+
+        logger.warning(
+            "Anonymous video info request failed; retrying once with "
+            "configured cookies."
+        )
+        info, retry_error = await self._get_video_info_once(url, cookies_file)
+        if info is None:
+            logger.error(
+                f"Failed to get video info after cookie retry: "
+                f"{retry_error or 'Unknown error'}"
+            )
+        return info
 
 
 # Singleton instance
