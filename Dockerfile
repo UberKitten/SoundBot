@@ -57,7 +57,7 @@ RUN uv pip install --python .venv/bin/python ./dist/*.whl
 # so use uv to actually update the runtime environment. No `|| true`: dependency
 # failures must fail the build loudly.
 RUN uv pip install --python .venv/bin/python --upgrade \
-    yt-dlp "bgutil-ytdlp-pot-provider==1.3.1"
+    yt-dlp "bgutil-ytdlp-pot-provider==1.3.2"
 
 # Run as non-root so bind-mounted host dirs (sounds/, config/) get the
 # expected ownership (uid 1000) instead of root.
