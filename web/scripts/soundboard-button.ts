@@ -13,7 +13,7 @@ import { showContextMenu, showContextMenuAt } from "context-menu";
 import { attachLongPress } from "long-press";
 import { mergeSoundRepresentation } from "sound-live-update";
 import { getDisplayDate, scheduleBackgroundTask } from "utils";
-import { notifySoundPlayed, videoPlayerHandlesClick } from "video-popover";
+import { playClipForSoundClick } from "video-popover";
 
 export class SoundboardButton extends HTMLElement {
   sound?: Sound;
@@ -79,11 +79,9 @@ export class SoundboardButton extends HTMLElement {
         return;
       }
 
-      if (videoPlayerHandlesClick(this.sound)) {
-        // Mini video player open + this sound has video: the video IS the
-        // playback (its audio plays once, when loaded). Playing board audio
-        // too caused a double-play — instant ogg, then the video again.
-        notifySoundPlayed(this.sound);
+      if (playClipForSoundClick(this.sound)) {
+        // The clip is the playback for this click. Playing board audio too
+        // would produce an immediate OGG followed by duplicate video audio.
       } else if (this.singlePlay) {
         playMainAudio(this.sound);
       } else {

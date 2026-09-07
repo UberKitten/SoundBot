@@ -11,7 +11,8 @@
 }
 
 .auth-login-btn,
-.admin-add-btn {
+.admin-add-btn,
+.admin-video-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.4em;
@@ -32,8 +33,14 @@
 }
 
 .auth-login-btn:hover,
-.admin-add-btn:hover {
+.admin-add-btn:hover,
+.admin-video-btn:hover:not(:disabled) {
   filter: brightness(1.15);
+}
+
+.admin-video-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .auth-chip {

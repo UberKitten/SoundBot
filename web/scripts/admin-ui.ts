@@ -17,7 +17,7 @@ import { copyToClipboard } from "clipboard";
 import { isAdmin, onAuthChange } from "auth";
 import { openDeleteModal, openRenameModal } from "sound-actions";
 import { openTrimEditor } from "trim-editor";
-import { openVideoPopover } from "video-popover";
+import { initVideoControl } from "video-popover";
 import { showToast } from "toast";
 
 export interface AdminMenuItem {
@@ -91,10 +91,6 @@ export function getAdminMenuItems(sound: Sound): AdminMenuItem[] {
   if (sound.has_video) {
     items.push(
       {
-        label: "Watch clip",
-        action: () => openVideoPopover(sound.name),
-      },
-      {
         label: "Download clip",
         action: () => downloadClip(sound.name),
       },
@@ -111,8 +107,9 @@ export function getAdminMenuItems(sound: Sound): AdminMenuItem[] {
   return items;
 }
 
-/** Initialise admin UI: toggle the add button with auth state. */
+/** Initialise authenticated header controls and context-menu affordances. */
 export function initAdminUi(): void {
+  initVideoControl();
   onAuthChange((state) => {
     const btn = ensureAddButton();
     btn.hidden = !(state.authenticated && state.can_admin);

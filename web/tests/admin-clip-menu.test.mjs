@@ -55,7 +55,7 @@ const stubs = new Map([
   [
     "video-popover",
     moduleUrl(
-      "export function openVideoPopover(name) { globalThis.__watched.push(name); }"
+      "export function initVideoControl() {}"
     ),
   ],
   [
@@ -108,7 +108,6 @@ globalThis.__copyToClipboard = async (text) => {
   globalThis.__copied.push(text);
 };
 globalThis.__toasts = [];
-globalThis.__watched = [];
 globalThis.__otherActions = [];
 
 const { getAdminMenuItems } = await import("../scripts/admin-ui.ts");
@@ -136,7 +135,6 @@ test("clip commands use the identical authenticated-viewer and clip condition", 
     getAdminMenuItems(sound()).map((item) => item.label),
     [
       "Edit / Trim…",
-      "Watch clip",
       "Download clip",
       "Copy clip embed URL",
       "Rename…",
@@ -150,7 +148,6 @@ test("clip commands keep selected identity and established menu actions intact",
   const items = getAdminMenuItems(sound());
   const byLabel = new Map(items.map((item) => [item.label, item.action]));
 
-  byLabel.get("Watch clip")();
   byLabel.get("Download clip")();
   byLabel.get("Copy clip embed URL")();
   byLabel.get("Edit / Trim…")();
@@ -158,7 +155,6 @@ test("clip commands keep selected identity and established menu actions intact",
   byLabel.get("Delete…")();
   await settle();
 
-  assert.deepEqual(globalThis.__watched, ["selected"]);
   assert.deepEqual(clickedDownloads, [
     "/api/admin/sounds/selected/video?download=true",
   ]);

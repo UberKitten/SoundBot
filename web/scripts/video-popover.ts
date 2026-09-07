@@ -1,32 +1,26 @@
 /**
- * "Watch clip" mini video player (admin-only — the endpoint is auth-gated).
+ * Authenticated clip player.
  *
- * A persistent, movable, resizable floating player. Opened from the sound
- * context menu; once open it STAYS open (no scrim, no click-outside close)
- * until the ✕ in the title bar (or Escape while focus is in the player) closes
- * it. While it's open, clicking any sound button whose sound `has_video`
- * retargets the SAME player to that sound's clip — the window never moves or
- * resizes, only the title + video swap (see `notifySoundPlayed`, called from
- * soundboard-button's click handler; the sound still plays on the board).
+ * The first video-enabled sound click opens this persistent, movable, resizable
+ * player and uses the clip as that click's playback. While visible, later
+ * video-enabled sound clicks retarget the same player. Hiding or closing the
+ * player suppresses automatic reopening for the rest of the page session;
+ * the explicit Show video control restores the most recently selected clip.
  *
  * The video streams from GET /api/admin/sounds/{name}/video (same-origin
- * cookies); the FIRST request per sound may take a few seconds while the
- * server transcodes, so a spinner overlays the stage until `canplay` — on
- * every load, including retargets. Closing pauses AND unloads the video (src
- * removed, load()) so audio never lingers.
+ * cookies). The first request per sound may take a few seconds while the
+ * server transcodes, so a spinner overlays the stage until `canplay`.
  *
  * Drag (title bar) and resize (bottom grip strip) both use pointer events with
- * pointer capture so mouse AND touch work. Geometry is clamped so the title
- * bar can't be lost off-screen (re-clamped on window resize) and the player
- * never exceeds 95vw x 70vh. Last position+size persist for the session.
+ * pointer capture. Geometry is clamped to keep the title bar reachable and is
+ * retained in sessionStorage.
  *
- * Layering: z-index 90 — above the page content but BELOW context menus (100)
- * and all modals (200/300), so the trim editor etc. layer over the player.
+ * Layering: z-index 90 — above page content, below context menus and modals.
  */
 
 import { soundVideoUrl } from "admin-api";
 import { Sound, stopAllButtonAudio, stopMainAudio } from "audio";
-import { isAdmin } from "auth";
+import { isAdmin, onAuthChange } from "auth";
 
 const MIN_WIDTH = 240;
 const MIN_HEIGHT = 180;
@@ -57,38 +51,97 @@ interface Player {
 
 /** Single player instance — everything retargets this. */
 let player: Player | null = null;
+let videoControl: HTMLButtonElement | null = null;
+let lastVideoName: string | null = null;
+let automaticOpeningSuppressed = false;
+
+function ensureVideoControl(): HTMLButtonElement {
+  if (videoControl && document.body.contains(videoControl)) return videoControl;
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.id = "admin-video-toggle";
+  btn.className = "admin-video-btn";
+  btn.addEventListener("click", () => {
+    if (player) {
+      hidePlayer(true);
+    } else {
+      showLastVideo();
+    }
+  });
+
+  const header = document.querySelector("header");
+  const authControls = document.querySelector("#auth-controls");
+  if (header) {
+    if (authControls) header.insertBefore(btn, authControls);
+    else header.appendChild(btn);
+  } else {
+    document.body.appendChild(btn);
+  }
+
+  videoControl = btn;
+  updateVideoControl();
+  return btn;
+}
+
+function updateVideoControl(): void {
+  if (!videoControl) return;
+  const visible = player !== null;
+  const label = visible ? "Hide video" : "Show video";
+  videoControl.textContent = label;
+  videoControl.title = label;
+  videoControl.setAttribute("aria-label", label);
+  videoControl.setAttribute("aria-pressed", visible ? "true" : "false");
+  videoControl.disabled = !visible && lastVideoName === null;
+}
 
 /**
- * Open the player on a sound (from the context menu). If the player already
- * exists it is retargeted in place — no second window, no move, no resize.
+ * Install the authenticated Show video / Hide video control.
  */
-export function openVideoPopover(name: string): void {
-  // A deliberate "Watch clip" pauses soundboard audio so the clip isn't
-  // fighting other playback. Click-retargets (notifySoundPlayed) do NOT do
-  // this — there the board sound is meant to keep playing.
+export function initVideoControl(): void {
+  onAuthChange((state) => {
+    const btn = ensureVideoControl();
+    const allowed = state.authenticated && state.can_admin;
+    btn.hidden = !allowed;
+    if (!allowed) {
+      hidePlayer(false);
+      lastVideoName = null;
+      automaticOpeningSuppressed = false;
+    }
+    updateVideoControl();
+  });
+}
+
+/**
+ * Handle a sound-button click with the clip player when appropriate.
+ *
+ * Returns true only when the clip is the playback for this click, so the
+ * caller can avoid also playing the soundboard audio. Video-enabled clicks
+ * made while explicitly hidden still remember the selection, but return false
+ * and leave the player hidden.
+ */
+export function playClipForSoundClick(sound: Sound): boolean {
+  if (!sound.has_video || !isAdmin()) return false;
+
+  lastVideoName = sound.name;
+  updateVideoControl();
+
+  if (player) {
+    loadSound(player, sound.name);
+    return true;
+  }
+  if (automaticOpeningSuppressed) return false;
+
+  loadSound(ensurePlayer(), sound.name);
+  return true;
+}
+
+function showLastVideo(): void {
+  if (!lastVideoName || !isAdmin()) return;
+  automaticOpeningSuppressed = false;
   stopMainAudio();
   stopAllButtonAudio();
-
-  loadSound(ensurePlayer(), name);
-}
-
-/**
- * True when a sound-button click should be handled by the video player
- * INSTEAD of board audio (player open + admin + sound has video). Playing
- * both caused a double-play: the ogg fired instantly, then the video's audio
- * arrived seconds later and played the sound again.
- */
-export function videoPlayerHandlesClick(sound: Sound): boolean {
-  return player !== null && sound.has_video && isAdmin();
-}
-
-/**
- * Called from the sound-button click path when videoPlayerHandlesClick() is
- * true: retarget the player to this sound (it plays once, when loaded).
- */
-export function notifySoundPlayed(sound: Sound): void {
-  if (!player || !sound.has_video || !isAdmin()) return;
-  loadSound(player, sound.name);
+  loadSound(ensurePlayer(), lastVideoName);
 }
 
 /* ---- loading / retargeting ---- */
@@ -196,13 +249,13 @@ function ensurePlayer(): Player {
     },
   };
 
-  closeBtn.addEventListener("click", closePlayer);
+  closeBtn.addEventListener("click", () => hidePlayer(true));
 
   // Escape closes only when focus is within the player (no document listener).
   wrap.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.key === "Escape") {
       e.stopPropagation();
-      closePlayer();
+      hidePlayer(true);
     }
   });
 
@@ -253,15 +306,20 @@ function ensurePlayer(): Player {
   window.addEventListener("resize", p.onWindowResize);
 
   player = p;
+  updateVideoControl();
   return p;
 }
 
-function closePlayer(): void {
-  if (!player) return;
+function hidePlayer(suppressAutomaticOpening: boolean): void {
+  if (suppressAutomaticOpening) automaticOpeningSuppressed = true;
+  if (!player) {
+    updateVideoControl();
+    return;
+  }
   const p = player;
   player = null;
   window.removeEventListener("resize", p.onWindowResize);
-  // Pause + unload so audio doesn't keep playing after close.
+  // Pause + unload so audio doesn't keep playing while hidden.
   try {
     p.video.pause();
     p.video.removeAttribute("src");
@@ -270,6 +328,7 @@ function closePlayer(): void {
     /* ignore */
   }
   p.wrap.remove();
+  updateVideoControl();
 }
 
 /* ---- drag / resize (pointer events with capture: mouse + touch) ---- */
