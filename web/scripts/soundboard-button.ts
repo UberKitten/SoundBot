@@ -12,22 +12,33 @@ import { copy } from "clipboard";
 import { showContextMenu, showContextMenuAt } from "context-menu";
 import { attachLongPress } from "long-press";
 import { mergeSoundRepresentation } from "sound-live-update";
-import { getDisplayDate, scheduleBackgroundTask } from "utils";
-import { playClipForSoundClick } from "video-popover";
+import {
+  showClipForSoundClick,
+  stopClipDisplayForSound,
+} from "video-popover";
 
 export class SoundboardButton extends HTMLElement {
   sound?: Sound;
   sort: string | null = null;
   singlePlay: boolean | null = null;
   displayDate: string = "";
-  audioChangeListener: () => void;
+  audioChangeListener: (event: Event) => void;
   progressAnimationId: number | null = null;
   longPressAttached = false;
 
   constructor() {
     super();
 
-    this.audioChangeListener = () => this.updateIndicators();
+    this.audioChangeListener = (event) => {
+      this.updateIndicators();
+      if (
+        this.sound &&
+        (event.type === "pause" || event.type === "ended") &&
+        getActiveAudioGroups(this.sound).size === 0
+      ) {
+        stopClipDisplayForSound(this.sound);
+      }
+    };
     addMainAudioChangeListener(this.audioChangeListener);
   }
 
@@ -75,14 +86,13 @@ export class SoundboardButton extends HTMLElement {
 
       if (this.singlePlay && isMainAudioActive(this.sound)) {
         stopMainAudio();
+        stopClipDisplayForSound(this.sound);
         this.updateIndicators();
         return;
       }
 
-      if (playClipForSoundClick(this.sound)) {
-        // The clip is the playback for this click. Playing board audio too
-        // would produce an immediate OGG followed by duplicate video audio.
-      } else if (this.singlePlay) {
+      showClipForSoundClick(this.sound);
+      if (this.singlePlay) {
         playMainAudio(this.sound);
       } else {
         playButtonAudio(this.sound, this.audioChangeListener);

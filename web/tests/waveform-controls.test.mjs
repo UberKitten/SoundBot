@@ -36,29 +36,32 @@ test("parses seconds and validated MM:SS / HH:MM:SS timestamps", () => {
   }
 });
 
-test("formats canonical timestamps across hour and subsecond boundaries", () => {
+test("formats readable timestamps with bounded millisecond precision and carries", () => {
   assert.equal(formatTimestamp(0), "00:00:00");
   assert.equal(formatTimestamp(59.999), "00:00:59.999");
-  assert.equal(formatTimestamp(60), "00:01:00");
-  assert.equal(formatTimestamp(3599.999), "00:59:59.999");
+  assert.equal(formatTimestamp(59.9999), "00:01:00");
+  assert.equal(formatTimestamp(3599.9999), "01:00:00");
   assert.equal(formatTimestamp(3600), "01:00:00");
   assert.equal(formatTimestamp(90061.125), "25:01:01.125");
+  assert.equal(formatTimestamp(61.23456789), "00:01:01.235");
+  assert.equal(formatTimestamp(0.30000000000000004), "00:00:00.3");
+  assert.equal(formatTimestamp(1e-18), "00:00:00");
   assert.throws(() => formatTimestamp(-0.01), RangeError);
   assert.throws(() => formatTimestamp(Number.POSITIVE_INFINITY), RangeError);
-});
 
-test("timestamp text round-trips millisecond and arbitrary subsecond trim floats", () => {
   for (const seconds of [
-    1e-18,
     0.001,
     0.05,
-    0.30000000000000004,
     61.23456789,
     3661.000001,
     90061.123456789,
   ]) {
     const text = formatTimestamp(seconds);
-    assert.equal(parseTimestamp(text), seconds, `${seconds} via ${text}`);
+    assert.ok(
+      Math.abs(parseTimestamp(text) - seconds) <= 0.0005,
+      `${seconds} via ${text}`
+    );
+    assert.match(text, /^\d{2,}:\d{2}:\d{2}(?:\.\d{1,3})?$/);
   }
 });
 

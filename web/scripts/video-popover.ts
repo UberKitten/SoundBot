@@ -2,9 +2,10 @@
  * Authenticated clip player.
  *
  * The first video-enabled sound click opens this persistent, movable, resizable
- * player and uses the clip as that click's playback. While visible, later
- * video-enabled sound clicks retarget the same player. Hiding or closing the
- * player suppresses automatic reopening for the rest of the page session;
+ * viewer. Soundboard audio remains owned by the normal Single/Chaos playback
+ * engine; this element is muted and only displays the selected clip. While
+ * visible, later video-enabled clicks retarget the same viewer. Hiding or
+ * closing suppresses automatic reopening for the rest of the page session;
  * the explicit Show video control restores the most recently selected clip.
  *
  * The video streams from GET /api/admin/sounds/{name}/video (same-origin
@@ -19,7 +20,7 @@
  */
 
 import { soundVideoUrl } from "admin-api";
-import { Sound, stopAllButtonAudio, stopMainAudio } from "audio";
+import { Sound } from "audio";
 import { isAdmin, onAuthChange } from "auth";
 
 const MIN_WIDTH = 240;
@@ -113,34 +114,41 @@ export function initVideoControl(): void {
 }
 
 /**
- * Handle a sound-button click with the clip player when appropriate.
+ * Select and display a video-enabled sound without taking ownership of audio.
  *
- * Returns true only when the clip is the playback for this click, so the
- * caller can avoid also playing the soundboard audio. Video-enabled clicks
- * made while explicitly hidden still remember the selection, but return false
- * and leave the player hidden.
+ * Sound buttons always use the canonical Single/Chaos audio engine. Keeping
+ * this one viewer muted prevents duplicate clip audio, while retargeting it
+ * cannot cancel any overlapping Chaos voices.
  */
-export function playClipForSoundClick(sound: Sound): boolean {
-  if (!sound.has_video || !isAdmin()) return false;
+export function showClipForSoundClick(sound: Sound): void {
+  if (!sound.has_video || !isAdmin()) return;
 
   lastVideoName = sound.name;
   updateVideoControl();
 
   if (player) {
     loadSound(player, sound.name);
-    return true;
+    return;
   }
-  if (automaticOpeningSuppressed) return false;
+  if (automaticOpeningSuppressed) return;
 
   loadSound(ensurePlayer(), sound.name);
-  return true;
+}
+
+/** Reset the displayed clip when its final canonical audio voice stops. */
+export function stopClipDisplayForSound(sound: Sound): void {
+  if (!player || player.currentName !== sound.name) return;
+  player.video.pause();
+  try {
+    player.video.currentTime = 0;
+  } catch {
+    /* not seekable yet */
+  }
 }
 
 function showLastVideo(): void {
   if (!lastVideoName || !isAdmin()) return;
   automaticOpeningSuppressed = false;
-  stopMainAudio();
-  stopAllButtonAudio();
   loadSound(ensurePlayer(), lastVideoName);
 }
 
@@ -218,6 +226,8 @@ function ensurePlayer(): Player {
   video.className = "video-player-video";
   video.controls = true;
   video.autoplay = true;
+  video.defaultMuted = true;
+  video.muted = true;
   video.playsInline = true;
   video.preload = "auto";
 
@@ -319,7 +329,7 @@ function hidePlayer(suppressAutomaticOpening: boolean): void {
   const p = player;
   player = null;
   window.removeEventListener("resize", p.onWindowResize);
-  // Pause + unload so audio doesn't keep playing while hidden.
+  // Pause + unload the muted visual stream while hidden.
   try {
     p.video.pause();
     p.video.removeAttribute("src");

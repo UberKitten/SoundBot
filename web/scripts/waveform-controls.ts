@@ -59,53 +59,32 @@ function clockText(hours: number, minutes: number, seconds: string): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${seconds.padStart(secondWidth, "0")}`;
 }
 
-function expandDecimalExponent(value: number): string {
-  const text = value.toString().toLowerCase();
-  const exponentMarker = text.indexOf("e");
-  if (exponentMarker === -1) return text;
-
-  const coefficient = text.slice(0, exponentMarker);
-  const exponent = Number(text.slice(exponentMarker + 1));
-  const point = coefficient.indexOf(".");
-  const digits = coefficient.replace(".", "");
-  const decimalIndex = (point === -1 ? coefficient.length : point) + exponent;
-  if (decimalIndex <= 0) {
-    return `0.${"0".repeat(-decimalIndex)}${digits}`;
-  }
-  if (decimalIndex >= digits.length) {
-    return `${digits}${"0".repeat(decimalIndex - digits.length)}`;
-  }
-  return `${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`;
-}
-
 /**
- * Format a nonnegative finite time as canonical HH:MM:SS[.fraction]. The
- * shortest fractional precision that round-trips through parseTimestamp is
- * selected, so editing a subsecond trim never silently changes its float.
+ * Format a nonnegative finite time as readable HH:MM:SS[.fraction].
+ *
+ * The editor keeps its numeric trim state separately, so bounding display
+ * precision here does not quantize an untouched or waveform-adjusted trim.
  */
 export function formatTimestamp(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
     throw new RangeError("Timestamp must be a nonnegative finite number");
   }
 
-  const hours = Math.floor(seconds / 3600);
-  const afterHours = seconds - hours * 3600;
-  const minutes = Math.floor(afterHours / 60);
-  const wholeMinutes = hours * 3600 + minutes * 60;
-  const secondsComponent = seconds - wholeMinutes;
-
-  for (let precision = 0; precision <= 17; precision++) {
-    let component = secondsComponent.toFixed(precision);
-    if (precision > 0) component = component.replace(/0+$/, "").replace(/\.$/, "");
-    if (Number(component) >= 60) continue;
-    const formatted = clockText(hours, minutes, component);
-    if (parseTimestamp(formatted) === seconds) return formatted;
+  let hours = Math.floor(seconds / 3600);
+  let withinHour =
+    Math.round((seconds - hours * 3600) * 1000) / 1000;
+  if (withinHour >= 3600) {
+    hours += 1;
+    withinHour = 0;
   }
 
-  const exactComponent = expandDecimalExponent(secondsComponent);
-  const exact = clockText(hours, minutes, exactComponent);
-  if (parseTimestamp(exact) === seconds) return exact;
-  throw new RangeError("Timestamp cannot be represented without precision loss");
+  const minutes = Math.floor(withinHour / 60);
+  const secondsComponent = withinHour - minutes * 60;
+  const component = secondsComponent
+    .toFixed(3)
+    .replace(/0+$/, "")
+    .replace(/\.$/, "");
+  return clockText(hours, minutes, component);
 }
 
 export interface WheelZoomDecisionInput {
