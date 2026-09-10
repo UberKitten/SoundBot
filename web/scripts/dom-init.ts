@@ -90,6 +90,27 @@ export function init() {
     searchInput.focus();
   });
 
+  document.addEventListener("keydown", (event) => {
+    const target = event.target;
+    const isEditable =
+      target instanceof Element &&
+      target.closest("input, textarea, select, [contenteditable]") !== null;
+
+    if (
+      event.key !== "/" ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      isEditable
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    searchInput.focus();
+  });
+
   // Sticky detents
   const VOLUME_DETENTS = [100];
   const DETENT_THRESHOLD = 20;
