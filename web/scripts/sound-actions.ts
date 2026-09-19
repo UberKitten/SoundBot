@@ -7,6 +7,30 @@ import { ApiError, deleteSound, patchSound } from "admin-api";
 import { openModal } from "modal";
 import { showToast } from "toast";
 
+export const SOUND_NAME_MAX_CODE_POINTS = 500;
+
+export function soundNameCodePointLength(value: string): number {
+  return Array.from(value).length;
+}
+
+export function soundNameLengthError(value: string): string | null {
+  const length = soundNameCodePointLength(value);
+  if (length <= SOUND_NAME_MAX_CODE_POINTS) return null;
+  return `Name must be at most ${SOUND_NAME_MAX_CODE_POINTS} Unicode code points (${length} entered).`;
+}
+
+export function soundNameRenameError(
+  currentName: string,
+  candidate: string
+): string | null {
+  if (candidate === currentName) return null;
+  return soundNameLengthError(candidate);
+}
+
+export function soundNameLengthHint(value: string): string {
+  return `${soundNameCodePointLength(value)}/${SOUND_NAME_MAX_CODE_POINTS} Unicode code points`;
+}
+
 function reportError(err: unknown, fallback: string): void {
   if (err instanceof ApiError) {
     showToast(err.message, "error", 6000);
@@ -33,13 +57,14 @@ export function openRenameModal(name: string, onDone?: () => void): void {
   input.id = "rename-input";
   input.type = "text";
   input.className = "admin-input";
-  input.maxLength = 50;
+  input.setAttribute("aria-describedby", "rename-name-hint");
   input.autocomplete = "off";
   input.required = true;
   input.value = name;
   const hint = document.createElement("div");
+  hint.id = "rename-name-hint";
   hint.className = "admin-hint";
-  hint.textContent = "Sanitized & lowercased by the server.";
+  hint.textContent = soundNameLengthHint(input.value);
   field.appendChild(label);
   field.appendChild(input);
   field.appendChild(hint);
@@ -67,6 +92,21 @@ export function openRenameModal(name: string, onDone?: () => void): void {
   form.appendChild(actions);
   modal.body.appendChild(form);
 
+  const updateNameState = () => {
+    const candidate = input.value.trim();
+    const lengthError = soundNameRenameError(name, candidate);
+    hint.textContent = soundNameLengthHint(candidate);
+    input.setCustomValidity(lengthError ?? "");
+    if (lengthError) {
+      errorLine.hidden = false;
+      errorLine.textContent = lengthError;
+    } else {
+      errorLine.hidden = true;
+    }
+  };
+  input.addEventListener("input", updateNameState);
+  updateNameState();
+
   let busy = false;
   form.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -80,6 +120,13 @@ export function openRenameModal(name: string, onDone?: () => void): void {
     }
     if (newName === name) {
       modal.close();
+      return;
+    }
+    const lengthError = soundNameRenameError(name, newName);
+    if (lengthError) {
+      errorLine.hidden = false;
+      errorLine.textContent = lengthError;
+      input.focus();
       return;
     }
     busy = true;

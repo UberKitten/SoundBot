@@ -10,7 +10,7 @@ from soundbot.services.clips import ClipError, ClipResult, ensure_clip
 from soundbot.services.ffmpeg import ffmpeg_service
 from soundbot.services.sounds import OperationResult, sound_service
 from soundbot.web.dependencies import AdminUser, require_admin
-from soundbot.web.clipsign import build_clip_share_url
+from soundbot.web.clipsign import build_clip_directory_share_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin)])
@@ -71,7 +71,7 @@ async def add_sound(body: AddSoundBody, user: AdminUser = Depends(require_admin)
     return {"name": body.name.lower()}
 
 
-@router.get("/sounds/{name}/waveform")
+@router.get("/sounds/{name:path}/waveform")
 async def get_waveform(name: str):
     """Ensure a full-length browser-decodable preview of the original exists."""
     sound = sound_service.get_sound(name)
@@ -151,7 +151,7 @@ async def _ensure_clip_for_name(name: str) -> tuple[str, ClipResult]:
     return canonical_name, result
 
 
-@router.get("/sounds/{name}/video")
+@router.get("/sounds/{name:path}/video")
 async def get_clip_video(name: str, download: bool = False):
     """Serve the authenticated browser clip inline or as a download."""
     _, result = await _ensure_clip_for_name(name)
@@ -168,14 +168,16 @@ async def get_clip_video(name: str, download: bool = False):
     )
 
 
-@router.get("/sounds/{name}/clip-url")
+@router.get("/sounds/{name:path}/clip-url")
 async def get_clip_url(name: str):
-    """Return the canonical absolute signed URL for embedding this clip."""
+    """Return the bounded absolute signed URL for embedding this clip."""
     canonical_name, _ = await _ensure_clip_for_name(name)
-    return {"url": build_clip_share_url(canonical_name)}
+    sound = sound_service.get_sound(canonical_name)
+    assert sound is not None
+    return {"url": build_clip_directory_share_url(sound.directory)}
 
 
-@router.put("/sounds/{name}/trim")
+@router.put("/sounds/{name:path}/trim")
 async def trim_sound(name: str, body: TrimBody):
     """Update trim timestamps and regenerate the processed audio."""
     sound = sound_service.get_sound(name)
@@ -200,7 +202,7 @@ async def trim_sound(name: str, body: TrimBody):
     }
 
 
-@router.patch("/sounds/{name}")
+@router.patch("/sounds/{name:path}")
 async def patch_sound(name: str, body: PatchBody):
     """Rename and/or set the volume of a sound."""
     resolved = sound_service.resolve_sound_name(name)
@@ -213,7 +215,7 @@ async def patch_sound(name: str, body: PatchBody):
         if not vol_result.success:
             raise _fail(vol_result)
 
-    if body.new_name is not None and body.new_name.lower() != current:
+    if body.new_name is not None:
         rename_result = await sound_service.rename_sound(current, body.new_name)
         if not rename_result.success:
             raise _fail(rename_result)
@@ -222,7 +224,7 @@ async def patch_sound(name: str, body: PatchBody):
     return {"name": current}
 
 
-@router.delete("/sounds/{name}", status_code=204)
+@router.delete("/sounds/{name:path}", status_code=204)
 async def delete_sound(name: str) -> Response:
     """Delete a sound."""
     result = await sound_service.delete_sound(name)
@@ -231,7 +233,7 @@ async def delete_sound(name: str) -> Response:
     return Response(status_code=204)
 
 
-@router.post("/sounds/{name}/redownload")
+@router.post("/sounds/{name:path}/redownload")
 async def redownload_sound(name: str):
     """Re-download a sound from its original source URL."""
     result = await sound_service.redownload_sound(name)

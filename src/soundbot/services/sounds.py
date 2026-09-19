@@ -19,6 +19,7 @@ from soundbot.models.sounds import (
     SoundGroupData,
     Timestamps,
     sanitize_name,
+    validate_sound_name_length,
 )
 from soundbot.services.clips import ClipError, ensure_clip
 from soundbot.services.ffmpeg import ffmpeg_service
@@ -86,6 +87,14 @@ class SoundService:
         self._update_callbacks: list[SoundUpdateCallback] = []
         self._group_update_callbacks: list[GroupUpdateCallback] = []
         self._group_shuffle_bags: dict[str, list[str]] = {}
+
+    @staticmethod
+    def _validate_new_name(name: str) -> Optional[OperationResult]:
+        try:
+            validate_sound_name_length(name)
+        except ValueError as e:
+            return OperationResult(success=False, message=str(e))
+        return None
 
     def on_sound_update(self, callback: SoundUpdateCallback):
         """Register a callback to be called when sounds are updated.
@@ -258,6 +267,9 @@ class SoundService:
 
         Returns OperationResult with timing information.
         """
+        if invalid_name := self._validate_new_name(name):
+            return invalid_name
+
         timings: dict[str, float] = {}
         name_lower = name.lower()
         safe_name = sanitize_name(name)
@@ -451,6 +463,9 @@ class SoundService:
         absolute path to the external file so future operations (regen,
         timestamp edits) can find it as long as the file is still reachable.
         """
+        if invalid_name := self._validate_new_name(name):
+            return invalid_name
+
         timings: dict[str, float] = {}
         name_lower = name.lower()
         safe_name = sanitize_name(name)
@@ -629,6 +644,9 @@ class SoundService:
 
         Returns OperationResult with timing information.
         """
+        if invalid_name := self._validate_new_name(name):
+            return invalid_name
+
         import time
 
         timings: dict[str, float] = {}
@@ -809,15 +827,13 @@ class SoundService:
         Unlike add_sound_from_file this also produces a trimmed video when
         the source has a video stream (drafts are usually yt-dlp mkv).
         """
+        if invalid_name := self._validate_new_name(name):
+            return invalid_name
+
         timings: dict[str, float] = {}
         name_lower = name.lower()
         safe_name = sanitize_name(name)
 
-        if not safe_name:
-            return OperationResult(
-                success=False,
-                message=f"'{name}' is not a valid sound name",
-            )
 
         if not source_path.exists():
             return OperationResult(
@@ -1284,6 +1300,7 @@ class SoundService:
 
     async def rename_sound(self, old_name: str, new_name: str) -> OperationResult:
         """Rename a sound."""
+
         old_lower = old_name.lower()
         new_lower = new_name.lower()
 
@@ -1293,6 +1310,15 @@ class SoundService:
                 success=False,
                 message=f"Sound '{old_name}' not found",
             )
+
+        if new_lower == old_lower:
+            return OperationResult(
+                success=True,
+                message=f"Sound is already named '{old_name}'",
+            )
+
+        if invalid_name := self._validate_new_name(new_name):
+            return invalid_name
 
         if new_lower in state.sounds:
             return OperationResult(

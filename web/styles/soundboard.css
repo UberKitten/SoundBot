@@ -117,6 +117,8 @@ soundboard-button {
   padding: var(--top-padding) var(--button-padding-x);
   text-align: center;
   word-wrap: break-word;
+  min-width: 0;
+  overflow: hidden;
 }
 
 soundboard-button.no-sublabel {
@@ -146,6 +148,18 @@ soundboard-button .icon {
 soundboard-button > span {
   display: block;
   padding-bottom: 0.1rem;
+}
+
+soundboard-button > .sound-name-label,
+.group-button > .group-name-label {
+  display: -webkit-box;
+  min-height: 2.5em;
+  max-height: 2.5em;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 soundboard-button > span:last-child {
@@ -521,6 +535,8 @@ label {
   word-wrap: break-word;
   color: white;
   font-size: inherit;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .group-button > span {

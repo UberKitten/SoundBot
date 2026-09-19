@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from soundbot.core.settings import settings
 from soundbot.core.state import state
 from soundbot.services.clips import ClipResult
-from soundbot.web.clipsign import verify_clip_sig
+from soundbot.web.clipsign import verify_clip_directory_sig
 from soundbot.web.dependencies import AdminUser, require_admin
 from soundbot.web.routes import admin
 from tests.conftest import make_sound
@@ -88,9 +88,9 @@ def test_authenticated_embed_url_is_absolute_signed_and_canonical(
     query = parse_qs(parsed.query)
     assert parsed.scheme == "https"
     assert parsed.netloc == "soundbot.example"
-    assert parsed.path == "/clips/selected.mp4"
+    assert parsed.path == "/clip-ids/selected.mp4"
     assert set(query) == {"exp", "sig"}
-    assert verify_clip_sig("selected", int(query["exp"][0]), query["sig"][0])
+    assert verify_clip_directory_sig("selected", int(query["exp"][0]), query["sig"][0])
     assert ensured_names == ["selected"]
 
 

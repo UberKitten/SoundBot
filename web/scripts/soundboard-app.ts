@@ -63,6 +63,37 @@ function groupToSortable(group: SoundGroup): SortableItem {
   };
 }
 
+export function findSoundButtonByName(
+  grid: ParentNode,
+  name: string
+): HTMLElement | null {
+  const buttons = grid.querySelectorAll<HTMLElement>("soundboard-button[sound]");
+  for (let index = 0; index < buttons.length; index += 1) {
+    const button = buttons[index];
+    if (button.dataset.soundName === name) return button;
+    const serialized = button.getAttribute("sound");
+    if (!serialized) continue;
+    try {
+      if ((JSON.parse(serialized) as Sound).name === name) return button;
+    } catch {
+      // Ignore a malformed unrelated element and continue the exact lookup.
+    }
+  }
+  return null;
+}
+
+function findGroupButtonByName(
+  grid: ParentNode,
+  name: string
+): HTMLButtonElement | null {
+  const buttons = grid.querySelectorAll<HTMLButtonElement>(".group-button");
+  for (let index = 0; index < buttons.length; index += 1) {
+    const button = buttons[index];
+    if (button.dataset.groupName === name) return button;
+  }
+  return null;
+}
+
 export class SoundboardApp extends HTMLElement {
   sounds: Array<Sound> = [];
   groups: Array<SoundGroup> = [];
@@ -136,10 +167,11 @@ export class SoundboardApp extends HTMLElement {
   handleSoundUpdate(event: SoundUpdateEvent) {
     const soundName = event.sound_name;
     const updateRenderedSound = (sound: Sound) => {
-      const button = this.grid.querySelector(
-        `soundboard-button[sound*='"name":"${soundName}"']`
-      ) as HTMLElement | null;
-      if (button) button.setAttribute("sound", JSON.stringify(sound));
+      const button = findSoundButtonByName(this.grid, soundName);
+      if (button) {
+        button.dataset.soundName = sound.name;
+        button.setAttribute("sound", JSON.stringify(sound));
+      }
     };
 
     return applySoundLiveUpdate(event, {
@@ -149,9 +181,7 @@ export class SoundboardApp extends HTMLElement {
       addRenderedSound: (sound) => this.addSoundButton(sound),
       updateRenderedSound,
       removeRenderedSound: (name) => {
-        const button = this.grid.querySelector(
-          `soundboard-button[sound*='"name":"${name}"']`
-        ) as HTMLElement | null;
+        const button = findSoundButtonByName(this.grid, name);
         if (button) button.remove();
       },
       reapplyFilter: () => this.reapplyCurrentFilter(),
@@ -176,7 +206,7 @@ export class SoundboardApp extends HTMLElement {
 
     if (action === "delete") {
       this.groups = this.groups.filter((g) => g.name !== group_name);
-      const button = this.grid.querySelector(`.group-button[data-group-name="${group_name}"]`);
+      const button = findGroupButtonByName(this.grid, group_name);
       if (button) button.remove();
       this.rebuildGroupMembers();
       this.refreshAllSoundButtonMembership();
@@ -194,7 +224,7 @@ export class SoundboardApp extends HTMLElement {
         this.groups.push(groupData);
       }
       // Update existing button
-      const button = this.grid.querySelector(`.group-button[data-group-name="${group_name}"]`) as HTMLElement | null;
+      const button = findGroupButtonByName(this.grid, group_name);
       if (button) {
         button.dataset.group = JSON.stringify(groupData);
         this.updateGroupButtonLabel(button as HTMLButtonElement, groupData);
@@ -264,6 +294,7 @@ export class SoundboardApp extends HTMLElement {
   addSoundButton(sound: Sound) {
     const button = document.createElement("soundboard-button");
     button.setAttribute("sound", JSON.stringify(sound));
+    button.dataset.soundName = sound.name;
     button.setAttribute("sort", this.sort ?? "");
     if (this.singlePlay) button.setAttribute("singleplay", "true");
     button.classList.add("fade-in");
@@ -501,6 +532,7 @@ export class SoundboardApp extends HTMLElement {
           if (item.type === "sound" && item.sound) {
             button = document.createElement("soundboard-button");
             button.setAttribute("sound", JSON.stringify(item.sound));
+            button.dataset.soundName = item.sound.name;
             button.setAttribute("sort", this.sort ?? "");
             if (this.singlePlay) button.setAttribute("singleplay", "true");
             if (!this.filterSoundButtons(button))
@@ -573,8 +605,17 @@ export class SoundboardApp extends HTMLElement {
     button.innerHTML = `
       <span class="icon hidden">&#x1F3B2;</span>
       <svg class="group-type-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg>
-      <span>${group.name}</span>
-      <span class="sortDisplay">${this.getGroupSortDisplay(group)}</span>`;
+      <span class="group-name-label"></span>
+      <span class="sortDisplay"></span>`;
+    const groupNameLabel = button.querySelector<HTMLElement>(".group-name-label");
+    const sortDisplay = button.querySelector<HTMLElement>(".sortDisplay");
+    if (groupNameLabel) {
+      groupNameLabel.textContent = group.name;
+      groupNameLabel.title = group.name;
+    }
+    if (sortDisplay) sortDisplay.textContent = this.getGroupSortDisplay(group);
+    button.title = group.name;
+    button.setAttribute("aria-label", `Play random sound from group ${group.name}`);
     button.dataset.groupName = group.name;
     button.dataset.group = JSON.stringify(group);
     button.dataset.copyText = `${getRandomPrefix()}${group.name}`;

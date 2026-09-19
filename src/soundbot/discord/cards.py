@@ -1,8 +1,7 @@
 """Discord embeds ("cards") and clip posting for sound play commands.
 
-Play paths post two separate messages: a bare signed clip URL (so Discord
-renders the native inline video player — an explicit embed on the same
-message would suppress the unfurl) followed by an info card embed.
+Video posts put a bounded, directory-addressed signed URL first so Discord can
+render its native player, then add name/source text only within content limits.
 """
 
 import logging
@@ -17,6 +16,112 @@ from soundbot.models.sounds import Sound
 from soundbot.services.sounds import sound_service
 
 logger = logging.getLogger(__name__)
+
+DISCORD_EMBED_TITLE_MAX_UNITS = 256
+DISCORD_EMBED_DESCRIPTION_MAX_UNITS = 4096
+DISCORD_EMBED_FIELD_MAX_UNITS = 1024
+DISCORD_MESSAGE_CONTENT_MAX_UNITS = 2000
+
+
+def discord_utf16_units(value: str) -> int:
+    """Conservatively count Discord text using UTF-16 code units."""
+    return sum(2 if ord(character) > 0xFFFF else 1 for character in value)
+
+
+def truncate_discord_text(value: str, max_units: int) -> str:
+    """Truncate without splitting a Unicode code point, reserving an ellipsis."""
+    if max_units <= 0:
+        return ""
+    if discord_utf16_units(value) <= max_units:
+        return value
+
+    ellipsis = "…"
+    remaining = max_units - discord_utf16_units(ellipsis)
+    if remaining < 0:
+        return ""
+
+    kept: list[str] = []
+    used = 0
+    for character in value:
+        units = 2 if ord(character) > 0xFFFF else 1
+        if used + units > remaining:
+            break
+        kept.append(character)
+        used += units
+    return "".join(kept) + ellipsis
+
+
+def fit_discord_content(value: str) -> str:
+    """Suppress mentions and fit ordinary content within Discord's limit."""
+    return truncate_discord_text(
+        discord.utils.escape_mentions(value), DISCORD_MESSAGE_CONTENT_MAX_UNITS
+    )
+
+
+def bounded_embed_title(prefix: str, value: str, suffix: str = "") -> str:
+    """Keep fixed title context while bounding a potentially long value."""
+    fixed_units = discord_utf16_units(prefix) + discord_utf16_units(suffix)
+    if fixed_units >= DISCORD_EMBED_TITLE_MAX_UNITS:
+        return truncate_discord_text(
+            prefix + suffix, DISCORD_EMBED_TITLE_MAX_UNITS
+        )
+    return (
+        prefix
+        + truncate_discord_text(
+            value, DISCORD_EMBED_TITLE_MAX_UNITS - fixed_units
+        )
+        + suffix
+    )
+
+
+def escape_discord_text(value: str) -> str:
+    """Render user-controlled names literally and without mentions."""
+    return discord.utils.escape_markdown(
+        discord.utils.escape_mentions(value), ignore_links=False
+    )
+
+
+def paginate_discord_lines(
+    values: list[str],
+    *,
+    limit: int = DISCORD_EMBED_DESCRIPTION_MAX_UNITS,
+) -> list[str]:
+    """Escape and pack complete display names into bounded description pages."""
+    pages: list[str] = []
+    lines: list[str] = []
+    used = 0
+
+    for value in values:
+        line = truncate_discord_text(f"• {escape_discord_text(value)}", limit)
+        separator_units = 1 if lines else 0
+        line_units = discord_utf16_units(line)
+        if lines and used + separator_units + line_units > limit:
+            pages.append("\n".join(lines))
+            lines = []
+            used = 0
+            separator_units = 0
+        lines.append(line)
+        used += separator_units + line_units
+
+    if lines:
+        pages.append("\n".join(lines))
+    return pages
+
+def _embed_name(name: str) -> tuple[str, Optional[str]]:
+    display_name = escape_discord_text(name)
+    full_title = f"🔊 {display_name}"
+    title = bounded_embed_title("🔊 ", display_name)
+    if title == full_title:
+        return title, None
+    description = truncate_discord_text(
+        f"Full name: {display_name}",
+        DISCORD_EMBED_DESCRIPTION_MAX_UNITS,
+    )
+    return title, description
+
+
+def _field_value(value: object) -> str:
+    return truncate_discord_text(str(value), DISCORD_EMBED_FIELD_MAX_UNITS)
 
 
 class Sender(Protocol):
@@ -85,12 +190,19 @@ def timestamped_source_url(sound: Sound) -> Optional[str]:
 
 def build_play_card(name: str, sound: Sound) -> discord.Embed:
     """Lean info card posted alongside a play — Sound fields only, no file I/O."""
-    embed = discord.Embed(title=f"🔊 {name}", color=discord.Color.blue())
+    title, description = _embed_name(name)
+    embed = discord.Embed(
+        title=title, description=description, color=discord.Color.blue()
+    )
 
     if sound.source_title:
-        _ = embed.add_field(name="Title", value=sound.source_title, inline=False)
+        _ = embed.add_field(
+            name="Title", value=_field_value(sound.source_title), inline=False
+        )
     if sound.source_url:
-        _ = embed.add_field(name="Source", value=sound.source_url, inline=False)
+        _ = embed.add_field(
+            name="Source", value=_field_value(sound.source_url), inline=False
+        )
 
     _ = embed.add_field(
         name="Duration", value=_trimmed_duration_text(sound), inline=True
@@ -111,7 +223,10 @@ def build_info_card(
     """
     md: dict[str, object] = metadata or {}
 
-    embed = discord.Embed(title=f"🔊 {name}", color=discord.Color.blue())
+    title, description = _embed_name(name)
+    embed = discord.Embed(
+        title=title, description=description, color=discord.Color.blue()
+    )
     source_url = timestamped_source_url(sound)
     if source_url:
         embed.url = source_url
@@ -121,9 +236,13 @@ def build_info_card(
         _ = embed.set_thumbnail(url=thumbnail)
 
     if sound.source_title:
-        _ = embed.add_field(name="Title", value=sound.source_title, inline=False)
+        _ = embed.add_field(
+            name="Title", value=_field_value(sound.source_title), inline=False
+        )
     if source_url:
-        _ = embed.add_field(name="Source", value=source_url, inline=False)
+        _ = embed.add_field(
+            name="Source", value=_field_value(source_url), inline=False
+        )
 
     # Channel/uploader, linked when a URL is available
     channel = md.get("channel") or md.get("uploader")
@@ -131,7 +250,9 @@ def build_info_card(
         channel_url = md.get("channel_url") or md.get("uploader_url")
         if isinstance(channel_url, str) and channel_url.startswith("http"):
             channel = f"[{channel}]({channel_url})"
-        _ = embed.add_field(name="Channel", value=channel, inline=True)
+        _ = embed.add_field(
+            name="Channel", value=_field_value(channel), inline=True
+        )
 
     upload_date = md.get("upload_date")
     if isinstance(upload_date, str):
@@ -168,7 +289,9 @@ def build_info_card(
 
     if sound.aliases:
         _ = embed.add_field(
-            name="Aliases", value=", ".join(sound.aliases), inline=False
+            name="Aliases",
+            value=_field_value(", ".join(sound.aliases)),
+            inline=False,
         )
 
     footer = f"Created: {sound.created.strftime('%Y-%m-%d')}"
@@ -187,21 +310,16 @@ async def post_clip_and_card(
     *,
     emoji: str = "🎵",
 ) -> None:
-    """Post one compact line for a played sound:
+    """Post a playable clip URL followed by bounded identifying text.
 
-        🎵 [name](clip url)   🔗 [Source Title](<source url>)
-
-    The masked clip link still unfurls into the inline video player
-    (bot-only behavior); the source link is wrapped in <> to suppress
-    its unfurl. No embed — an embed would suppress the clip unfurl.
-
-    Clip linking is best-effort: no video, unset SESSION_SECRET, or a
-    transcode failure fall back to a plain bold name.
+    Clip linking is best-effort: no video, unset SESSION_SECRET, or a transcode
+    failure falls back to a plain name. The direct URL stays first and is never
+    truncated; optional source text is omitted if it cannot fit.
     """
     # Import here (like /clip does) to keep the web helpers out of the
     # discord module import graph at import time.
     from soundbot.services.clips import ClipError, ensure_clip
-    from soundbot.web.clipsign import build_clip_share_url
+    from soundbot.web.clipsign import build_clip_directory_share_url
 
     clip_available = False
     if not settings.session_secret:
@@ -213,16 +331,47 @@ async def post_clip_and_card(
         except ClipError as e:
             logger.error(f"Play-clip generation failed for '{name}': {e}")
 
+    escaped_name = escape_discord_text(name)
     if clip_available:
-        line = f"{emoji} [{name}]({build_clip_share_url(name)})"
+        clip_url = build_clip_directory_share_url(sound.directory)
+        if discord_utf16_units(clip_url) <= DISCORD_MESSAGE_CONTENT_MAX_UNITS:
+            remaining = (
+                DISCORD_MESSAGE_CONTENT_MAX_UNITS
+                - discord_utf16_units(clip_url)
+                - 1
+            )
+            name_line = truncate_discord_text(
+                f"{emoji} {escaped_name}", remaining
+            )
+            line = clip_url + (f"\n{name_line}" if name_line else "")
+        else:
+            logger.error("Generated clip URL exceeds Discord's content limit")
+            line = fit_discord_content(f"{emoji} {escaped_name}")
     else:
-        line = f"{emoji} **{name}**"
+        line = fit_discord_content(f"{emoji} {escaped_name}")
 
     source_url = timestamped_source_url(sound)
-    if source_url:
-        source_label = sound.source_title or "source"
-        # Wide spacing so the two links read as separate things at a glance
-        # (Discord preserves regular spaces in message content).
-        line += f"   🔗 [{source_label}](<{source_url}>)"
+    if (
+        source_url
+        and source_url.startswith(("http://", "https://"))
+        and not any(character.isspace() or character in "<>" for character in source_url)
+    ):
+        source_link = f"<{source_url}>"
+        separator = "\n"
+        fixed_source = f"🔗 source: {source_link}"
+        remaining = (
+            DISCORD_MESSAGE_CONTENT_MAX_UNITS
+            - discord_utf16_units(line)
+            - discord_utf16_units(separator)
+        )
+        if discord_utf16_units(fixed_source) <= remaining:
+            source_label = escape_discord_text(sound.source_title or "source")
+            label_budget = (
+                remaining
+                - discord_utf16_units("🔗 : ")
+                - discord_utf16_units(source_link)
+            )
+            label = truncate_discord_text(source_label, label_budget)
+            line += f"{separator}🔗 {label}: {source_link}"
 
     _ = await send(line)

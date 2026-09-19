@@ -9,6 +9,10 @@
 import { ApiError, DraftInfo, commitDraft, discardDraft } from "admin-api";
 import { buildDraftCommitPayload } from "editor-payloads";
 import { stopAllButtonAudio, stopMainAudio } from "audio";
+import {
+  soundNameLengthError,
+  soundNameLengthHint,
+} from "sound-actions";
 import { showToast } from "toast";
 import {
   MIN_REGION_LENGTH,
@@ -16,20 +20,6 @@ import {
   openWaveformEditor,
 } from "waveform-editor";
 
-const NAME_MAXLEN = 50;
-
-/**
- * Mirror of the server's name sanitization (lowercase, spaces → underscores,
- * illegal chars stripped, max 50) — display-only; the server stays canonical.
- */
-export function sanitizeName(raw: string): string {
-  return raw
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "_")
-    .replace(/[^a-z0-9_-]/g, "")
-    .slice(0, NAME_MAXLEN);
-}
 
 /** Open the draft editor for a just-created draft. */
 export function openDraftEditor(draft: DraftInfo, onSaved?: () => void): void {
@@ -79,32 +69,33 @@ export function openDraftEditor(draft: DraftInfo, onSaved?: () => void): void {
     input.id = "draft-sound-name";
     input.type = "text";
     input.className = "admin-input";
-    input.maxLength = NAME_MAXLEN;
+    input.setAttribute("aria-describedby", "draft-name-hint");
     input.autocomplete = "off";
     input.placeholder = "e.g. airhorn";
 
     const hint = document.createElement("div");
+    hint.id = "draft-name-hint";
     hint.className = "admin-hint draft-name-hint";
-    hint.textContent = " ";
+    hint.textContent = `${soundNameLengthHint("")} • saved lowercase`;
 
     const errorLine = document.createElement("div");
     errorLine.className = "admin-error";
     errorLine.hidden = true;
 
     const updateHint = () => {
-      const sanitized = sanitizeName(input.value);
-      if (input.value && sanitized) {
-        hint.textContent = `Will be saved as "${sanitized}"`;
-      } else if (input.value && !sanitized) {
-        hint.textContent = "Name has no usable characters.";
+      const candidate = input.value.trim();
+      const lengthError = soundNameLengthError(candidate);
+      hint.textContent = `${soundNameLengthHint(candidate)} • saved lowercase`;
+      input.setCustomValidity(lengthError ?? "");
+      if (lengthError) {
+        showError(lengthError);
       } else {
-        hint.textContent = " ";
+        errorLine.hidden = true;
       }
     };
 
     input.addEventListener("input", () => {
       nameTouched = input.value.trim().length > 0;
-      errorLine.hidden = true;
       updateHint();
     });
     input.addEventListener("keydown", (e) => {
@@ -113,6 +104,7 @@ export function openDraftEditor(draft: DraftInfo, onSaved?: () => void): void {
         doCommit();
       }
     });
+    updateHint();
 
     nameField.appendChild(label);
     nameField.appendChild(input);
@@ -155,8 +147,14 @@ export function openDraftEditor(draft: DraftInfo, onSaved?: () => void): void {
       errorLine.hidden = true;
 
       const name = input.value.trim();
-      if (!name || !sanitizeName(name)) {
+      if (!name) {
         showError("Please enter a name.");
+        input.focus();
+        return;
+      }
+      const lengthError = soundNameLengthError(name);
+      if (lengthError) {
+        showError(lengthError);
         input.focus();
         return;
       }

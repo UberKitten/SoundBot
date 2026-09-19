@@ -9,19 +9,28 @@ startup backfill.
 
 import asyncio
 import logging
+import os
+import stat
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from soundbot.core.state import state
 from soundbot.models.sounds import Sound
-from soundbot.services.ffmpeg import ffmpeg_service
+from soundbot.services.ffmpeg import (
+    ProbeResult,
+    ffmpeg_service,
+    is_browser_video_compatible,
+)
 
 logger = logging.getLogger(__name__)
 
 # Bounded concurrency for the startup backfill.
 BACKFILL_CONCURRENCY = 4
 BACKFILL_LOG_EVERY = 25
+
+_probe_memo: dict[Path, tuple[tuple[int, int, int], ProbeResult]] = {}
 
 
 class ClipError(Exception):
@@ -56,6 +65,78 @@ def _needs_regenerate(output: Path, source: Path) -> bool:
         return True
 
 
+def _clip_identity(path: Path) -> tuple[int, int, int]:
+    stat = path.stat()
+    return (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
+
+def _remember_probe(path: Path, probe: ProbeResult) -> None:
+    try:
+        _probe_memo[path] = (_clip_identity(path), probe)
+    except OSError:
+        _probe_memo.pop(path, None)
+
+
+async def _memoized_probe(path: Path) -> Optional[ProbeResult]:
+    """Probe once per stable path/inode/size/mtime identity."""
+    try:
+        identity = _clip_identity(path)
+    except OSError:
+        return None
+    memo = _probe_memo.get(path)
+    if memo is not None and memo[0] == identity:
+        return memo[1]
+    probe = await ffmpeg_service.probe(path)
+    if probe is None:
+        return None
+    try:
+        if _clip_identity(path) != identity:
+            return None
+    except OSError:
+        return None
+    _probe_memo[path] = (identity, probe)
+    return probe
+
+
+async def _is_compatible_cached_clip(
+    output: Path, *, require_audio: bool
+) -> bool:
+    """Check a fresh cache entry against the browser-video contract."""
+    probe = await _memoized_probe(output)
+    return probe is not None and is_browser_video_compatible(
+        probe, require_audio=require_audio
+    )
+
+
+def _new_clip_candidate(output: Path) -> Path:
+    """Reserve a unique same-directory MP4 path for atomic installation."""
+    descriptor, candidate = tempfile.mkstemp(
+        dir=output.parent,
+        prefix=f".{output.stem}-",
+        suffix=".mp4",
+    )
+    os.close(descriptor)
+    return Path(candidate)
+
+
+async def _install_verified_clip(
+    candidate: Path, output: Path, *, require_audio: bool
+) -> None:
+    """Validate a completed candidate before atomically replacing the cache."""
+    probe = await ffmpeg_service.probe(candidate)
+    if probe is None or not is_browser_video_compatible(
+        probe, require_audio=require_audio
+    ):
+        raise ClipError("Generated clip does not satisfy browser-video compatibility")
+    try:
+        output_mode = stat.S_IMODE(output.stat().st_mode)
+    except FileNotFoundError:
+        output_mode = 0o644
+    candidate.chmod(output_mode)
+    os.replace(candidate, output)
+    _remember_probe(output, probe)
+
+
 async def resolve_clip_source(
     sound: Sound, sound_dir: Path
 ) -> Optional[tuple[Path, Optional[float], Optional[float]]]:
@@ -76,7 +157,7 @@ async def resolve_clip_source(
     # (external clips); pathlib's / preserves an absolute RHS.
     original_path = sound_dir / sound.files.original
     if original_path.exists():
-        probe = await ffmpeg_service.probe(original_path)
+        probe = await _memoized_probe(original_path)
         if probe and probe.has_video:
             return (original_path, sound.timestamps.start, sound.timestamps.end)
 
@@ -104,36 +185,62 @@ async def ensure_clip(
         audio_path = sound_dir / sound.files.trimmed_audio
         if not audio_path.exists():
             return None
-
-        if not force and not _needs_regenerate(clip_path, audio_path):
-            return ClipResult(path=clip_path, generated=False)
-
-        probe = await ffmpeg_service.probe(audio_path)
+        probe = await _memoized_probe(audio_path)
         if probe is None or probe.duration is None or probe.duration <= 0:
             return None
 
-        result = await ffmpeg_service.make_waveform_video(
-            audio_path, clip_path, duration=probe.duration
-        )
-        if not result.success:
-            raise ClipError(result.error or "Unknown ffmpeg error")
+        if (
+            not force
+            and not _needs_regenerate(clip_path, audio_path)
+            and await _is_compatible_cached_clip(clip_path, require_audio=True)
+        ):
+            return ClipResult(path=clip_path, generated=False)
+
+        candidate = _new_clip_candidate(clip_path)
+        try:
+            result = await ffmpeg_service.make_waveform_video(
+                audio_path, candidate, duration=probe.duration
+            )
+            if not result.success:
+                raise ClipError(result.error or "Unknown ffmpeg error")
+            await _install_verified_clip(
+                candidate, clip_path, require_audio=True
+            )
+        finally:
+            candidate.unlink(missing_ok=True)
         return ClipResult(
-            path=clip_path, generated=True, duration_seconds=result.duration_seconds
+            path=clip_path,
+            generated=True,
+            duration_seconds=result.duration_seconds,
         )
 
     source_path, trim_start, trim_end = source
 
-    if not force and not _needs_regenerate(clip_path, source_path):
-        return ClipResult(path=clip_path, generated=False)
+    source_probe = await _memoized_probe(source_path)
+    if source_probe is None or not source_probe.has_video:
+        raise ClipError(f"Failed to probe video source: {source_path}")
 
-    result = await ffmpeg_service.make_browser_video(
-        source_path,
-        clip_path,
-        start=trim_start,
-        end=trim_end,
-    )
-    if not result.success:
-        raise ClipError(result.error or "Unknown ffmpeg error")
+    if not force and not _needs_regenerate(clip_path, source_path):
+        if await _is_compatible_cached_clip(
+            clip_path, require_audio=source_probe.has_audio
+        ):
+            return ClipResult(path=clip_path, generated=False)
+
+    candidate = _new_clip_candidate(clip_path)
+    try:
+        result = await ffmpeg_service.make_browser_video(
+            source_path,
+            candidate,
+            start=trim_start,
+            end=trim_end,
+        )
+        if not result.success:
+            raise ClipError(result.error or "Unknown ffmpeg error")
+        await _install_verified_clip(
+            candidate, clip_path, require_audio=source_probe.has_audio
+        )
+    finally:
+        candidate.unlink(missing_ok=True)
 
     return ClipResult(
         path=clip_path,
@@ -146,8 +253,8 @@ async def ensure_clip(
 async def backfill_clips(sounds_dir: Path) -> None:
     """One-time self-heal: ensure clips exist for every sound with video.
 
-    Runs with bounded concurrency; cheap on subsequent boots (mtime checks
-    only). Never raises — each failure is logged and counted.
+    Runs with bounded concurrency; cheap on subsequent boots (mtime checks plus
+    bounded compatibility probes). Never raises — failures are logged and counted.
     """
     items = list(state.sounds.items())
     total = len(items)

@@ -13,7 +13,16 @@ from discord.ext import commands
 from soundbot.core.settings import settings
 from soundbot.core.state import state
 from soundbot.core.utils import parse_timestamp
-from soundbot.discord.cards import build_info_card, post_clip_and_card
+from soundbot.discord.cards import (
+    DISCORD_EMBED_FIELD_MAX_UNITS,
+    bounded_embed_title,
+    build_info_card,
+    escape_discord_text,
+    fit_discord_content,
+    paginate_discord_lines,
+    post_clip_and_card,
+    truncate_discord_text,
+)
 from soundbot.models.sounds import RandomMode, Sound
 from soundbot.services.ffmpeg import ffmpeg_service
 from soundbot.services.sounds import sound_service
@@ -60,7 +69,7 @@ def _suggestion_suffix(matches: list[str]) -> str:
     """
     if not matches:
         return ""
-    shown = matches[:5]
+    shown = [escape_discord_text(match) for match in matches[:5]]
     more = " …" if len(matches) > 5 else ""
     return f" Did you mean: {', '.join(shown)}{more}?"
 
@@ -73,14 +82,20 @@ def _sound_not_found_message(name: str, *, with_group: bool = False) -> str:
     """
     label = "Sound or group" if with_group else "Sound"
     matches = [n for n, _ in sound_service.search_sounds(name)]
-    return f"❌ {label} '{name}' not found" + _suggestion_suffix(matches)
+    return fit_discord_content(
+        f"❌ {label} '{escape_discord_text(name)}' not found"
+        + _suggestion_suffix(matches)
+    )
 
 
 def _group_not_found_message(name: str) -> str:
     """Unified not-found message for a group, suggesting similar group names."""
     query = name.lower()
     matches = sorted(g for g in sound_service.list_groups() if query in g.lower())
-    return f"❌ Group '{name}' not found" + _suggestion_suffix(matches)
+    return fit_discord_content(
+        f"❌ Group '{escape_discord_text(name)}' not found"
+        + _suggestion_suffix(matches)
+    )
 
 
 # Unified wording for a bad timestamp, shared by /add, /trim, and /playurl.
@@ -303,7 +318,9 @@ class SoundCommands(commands.Cog):
             )
 
         emoji = "✅" if result.success else "❌"
-        _ = await interaction.followup.send(f"{emoji} {result.full_message()}")
+        _ = await interaction.followup.send(
+            fit_discord_content(f"{emoji} {result.full_message()}")
+        )
 
     @app_commands.command(name="delete")
     @app_commands.describe(name="Name of the sound to delete")
@@ -321,7 +338,9 @@ class SoundCommands(commands.Cog):
 
         result = await sound_service.delete_sound(canonical_name)
         emoji = "✅" if result.success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+        _ = await interaction.response.send_message(
+            fit_discord_content(f"{emoji} {result.message}")
+        )
 
     @app_commands.command(name="redownload")
     @app_commands.describe(name="Name of the sound to re-download")
@@ -341,7 +360,9 @@ class SoundCommands(commands.Cog):
         result = await sound_service.redownload_sound(canonical_name)
 
         emoji = "✅" if result.success else "❌"
-        _ = await interaction.followup.send(f"{emoji} {result.full_message()}")
+        _ = await interaction.followup.send(
+            fit_discord_content(f"{emoji} {result.full_message()}")
+        )
 
     @app_commands.command(name="rename")
     @app_commands.describe(
@@ -368,7 +389,9 @@ class SoundCommands(commands.Cog):
 
         result = await sound_service.rename_sound(canonical_name, new_name)
         emoji = "✅" if result.success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+        _ = await interaction.response.send_message(
+            fit_discord_content(f"{emoji} {result.message}")
+        )
 
     @app_commands.command(name="trim")
     @app_commands.describe(
@@ -417,7 +440,9 @@ class SoundCommands(commands.Cog):
         )
 
         emoji = "✅" if result.success else "❌"
-        _ = await interaction.followup.send(f"{emoji} {result.full_message()}")
+        _ = await interaction.followup.send(
+            fit_discord_content(f"{emoji} {result.full_message()}")
+        )
 
     @app_commands.command(name="adjust")
     @app_commands.describe(
@@ -451,7 +476,9 @@ class SoundCommands(commands.Cog):
         )
 
         emoji = "✅" if result.success else "❌"
-        _ = await interaction.followup.send(f"{emoji} {result.full_message()}")
+        _ = await interaction.followup.send(
+            fit_discord_content(f"{emoji} {result.full_message()}")
+        )
 
     @app_commands.command(name="volume")
     @app_commands.describe(
@@ -503,7 +530,9 @@ class SoundCommands(commands.Cog):
         )
 
         emoji = "✅" if result.success else "❌"
-        _ = await interaction.followup.send(f"{emoji} {result.full_message()}")
+        _ = await interaction.followup.send(
+            fit_discord_content(f"{emoji} {result.full_message()}")
+        )
 
     @app_commands.command(name="clip")
     @app_commands.describe(name="Name of the sound")
@@ -516,7 +545,7 @@ class SoundCommands(commands.Cog):
             ensure_clip,
             resolve_clip_source,
         )
-        from soundbot.web.clipsign import build_clip_share_url
+        from soundbot.web.clipsign import build_clip_directory_share_url
 
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
@@ -541,7 +570,10 @@ class SoundCommands(commands.Cog):
         sound_dir = sound_service.sounds_dir / sound.directory
         if await resolve_clip_source(sound, sound_dir) is None:
             _ = await interaction.response.send_message(
-                f"❌ Sound '{canonical_name}' has no video", ephemeral=True
+                fit_discord_content(
+                    f"❌ Sound '{escape_discord_text(canonical_name)}' has no video"
+                ),
+                ephemeral=True,
             )
             return
 
@@ -554,37 +586,47 @@ class SoundCommands(commands.Cog):
         except ClipError as e:
             logger.error(f"/clip generation failed for '{canonical_name}': {e}")
             _ = await interaction.followup.send(
-                f"❌ Failed to generate a clip for '{canonical_name}'"
+                fit_discord_content(
+                    f"❌ Failed to generate a clip for '{escape_discord_text(canonical_name)}'"
+                )
             )
             return
 
         if result is None:
             _ = await interaction.followup.send(
-                f"❌ Sound '{canonical_name}' has no video"
+                fit_discord_content(
+                    f"❌ Sound '{escape_discord_text(canonical_name)}' has no video"
+                )
             )
             return
 
         # A bare direct .mp4 link as message content is what makes Discord
         # render the native inline video player — no embed object.
-        url = build_clip_share_url(canonical_name)
+        url = build_clip_directory_share_url(sound.directory)
         _ = await interaction.followup.send(url)
 
     @app_commands.command(name="info")
     @app_commands.describe(name="Name of the sound or group")
     async def sound_info(self, interaction: Interaction, name: str):
-        """Get information about a sound or group."""
         # Strip any command prefix from the name
         name = strip_command_prefix(name)
 
         # If it's a group, show group info
         group_members = sound_service.resolve_group(name)
         if group_members is not None:
+            descriptions = paginate_discord_lines(group_members)
             embed = discord.Embed(
-                title=f"🎲 Group: {name}",
-                description=", ".join(group_members) if group_members else "(empty)",
+                title=bounded_embed_title(
+                    "🎲 Group: ", escape_discord_text(name)
+                ),
+                description=descriptions[0] if descriptions else "(empty)",
                 color=discord.Color.purple(),
             )
             _ = embed.add_field(name="Members", value=str(len(group_members)), inline=True)
+            if len(descriptions) > 1:
+                _ = embed.set_footer(
+                    text=f"Showing page 1 of {len(descriptions)}"
+                )
             _ = await interaction.response.send_message(embed=embed)
             return
 
@@ -634,23 +676,28 @@ class SoundCommands(commands.Cog):
         results = sound_service.search_sounds(query)
         if not results:
             _ = await interaction.response.send_message(
-                f"❌ No sounds matching '{query}'"
+                fit_discord_content(
+                    f"❌ No sounds matching '{escape_discord_text(query)}'"
+                )
             )
             return
 
         names = [name for name, _ in results]
-
-        # Paginate if too many
-        chunks = [names[i : i + 50] for i in range(0, len(names), 50)]
-
+        descriptions = paginate_discord_lines(names)
         embed = discord.Embed(
-            title=f"🔊 Sounds matching '{query}' ({len(names)} total)",
-            description=", ".join(chunks[0]),
+            title=bounded_embed_title(
+                "🔊 Sounds matching '",
+                escape_discord_text(query),
+                f"' ({len(names)} total)",
+            ),
+            description=descriptions[0],
             color=discord.Color.blue(),
         )
 
-        if len(chunks) > 1:
-            _ = embed.set_footer(text=f"Showing first 50 of {len(names)}")
+        if len(descriptions) > 1:
+            _ = embed.set_footer(
+                text=f"Showing page 1 of {len(descriptions)} • {len(names)} matches"
+            )
 
         _ = await interaction.response.send_message(embed=embed)
 
@@ -664,29 +711,30 @@ class SoundCommands(commands.Cog):
             )
             return
 
-        # Split into chunks of 50 sounds per message
-        chunks = [names[i : i + 50] for i in range(0, len(names), 50)]
+        descriptions = paginate_discord_lines(names)
 
-        # Send first chunk as response
+        # Send first page as the interaction response.
         embed = discord.Embed(
-            title=f"🔊 All Sounds ({len(names)} total)",
-            description=", ".join(chunks[0]),
+            title=bounded_embed_title(
+                "🔊 All Sounds (", str(len(names)), " total)"
+            ),
+            description=descriptions[0],
             color=discord.Color.blue(),
         )
 
-        if len(chunks) > 1:
-            _ = embed.set_footer(text=f"Page 1 of {len(chunks)}")
+        if len(descriptions) > 1:
+            _ = embed.set_footer(text=f"Page 1 of {len(descriptions)}")
 
         _ = await interaction.response.send_message(embed=embed)
 
-        # Send remaining chunks as follow-up messages
-        for i, chunk in enumerate(chunks[1:], start=2):
+        # Send remaining bounded pages as follow-up messages.
+        for i, description in enumerate(descriptions[1:], start=2):
             embed = discord.Embed(
                 title="🔊 All Sounds (continued)",
-                description=", ".join(chunk),
+                description=description,
                 color=discord.Color.blue(),
             )
-            _ = embed.set_footer(text=f"Page {i} of {len(chunks)}")
+            _ = embed.set_footer(text=f"Page {i} of {len(descriptions)}")
             _ = await interaction.followup.send(embed=embed)
 
     alias_group = app_commands.Group(name="alias", description="Manage sound aliases")
@@ -699,7 +747,9 @@ class SoundCommands(commands.Cog):
         alias = strip_command_prefix(alias)
         result = sound_service.add_alias(sound, alias)
         emoji = "✅" if result.success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+        _ = await interaction.response.send_message(
+            fit_discord_content(f"{emoji} {result.message}")
+        )
 
     @alias_group.command(name="remove")
     @app_commands.describe(sound="Name of the sound", alias="Alias to remove")
@@ -709,12 +759,13 @@ class SoundCommands(commands.Cog):
         alias = strip_command_prefix(alias)
         result = sound_service.remove_alias(sound, alias)
         emoji = "✅" if result.success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+        _ = await interaction.response.send_message(
+            fit_discord_content(f"{emoji} {result.message}")
+        )
 
     @alias_group.command(name="list")
     @app_commands.describe(sound="Name of the sound")
     async def alias_list(self, interaction: Interaction, sound: str):
-        """List aliases for a sound."""
         sound = strip_command_prefix(sound)
         resolved = sound_service.resolve_sound_name(sound)
         if not resolved:
@@ -723,13 +774,18 @@ class SoundCommands(commands.Cog):
             )
             return
         canonical_name, sound_obj = resolved
+        descriptions = paginate_discord_lines(sound_obj.aliases)
         embed = discord.Embed(
-            title=f"🔊 Aliases for {canonical_name}",
-            description=", ".join(sound_obj.aliases)
-            if sound_obj.aliases
-            else "(no aliases)",
+            title=bounded_embed_title(
+                "🔊 Aliases for ", escape_discord_text(canonical_name)
+            ),
+            description=descriptions[0] if descriptions else "(no aliases)",
             color=discord.Color.blue(),
         )
+        if len(descriptions) > 1:
+            _ = embed.set_footer(
+                text=f"Showing page 1 of {len(descriptions)}"
+            )
         _ = await interaction.response.send_message(embed=embed)
 
     group_cmd = app_commands.Group(name="group", description="Manage sound groups")
@@ -741,7 +797,9 @@ class SoundCommands(commands.Cog):
         name = strip_command_prefix(name)
         result = sound_service.create_group(name)
         emoji = "✅" if result.success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+        _ = await interaction.response.send_message(
+            fit_discord_content(f"{emoji} {result.message}")
+        )
 
     @group_cmd.command(name="delete")
     @app_commands.describe(name="Name of the group")
@@ -750,7 +808,9 @@ class SoundCommands(commands.Cog):
         name = strip_command_prefix(name)
         result = sound_service.delete_group(name)
         emoji = "✅" if result.success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+        _ = await interaction.response.send_message(
+            fit_discord_content(f"{emoji} {result.message}")
+        )
 
     @group_cmd.command(name="add")
     @app_commands.describe(group="Name of the group", sound="Sound to add")
@@ -769,7 +829,8 @@ class SoundCommands(commands.Cog):
         result = sound_service.add_to_group(group, canonical_name)
         emoji = "✅" if result.success else "❌"
         _ = await interaction.response.send_message(
-            f"{emoji} {result.message}", ephemeral=not result.success
+            fit_discord_content(f"{emoji} {result.message}"),
+            ephemeral=not result.success,
         )
 
     @group_cmd.command(name="remove")
@@ -789,7 +850,8 @@ class SoundCommands(commands.Cog):
         result = sound_service.remove_from_group(group, canonical_name)
         emoji = "✅" if result.success else "❌"
         _ = await interaction.response.send_message(
-            f"{emoji} {result.message}", ephemeral=not result.success
+            fit_discord_content(f"{emoji} {result.message}"),
+            ephemeral=not result.success,
         )
 
     @group_cmd.command(name="random")
@@ -822,12 +884,13 @@ class SoundCommands(commands.Cog):
             name, cast(RandomMode, mode.value)
         )
         emoji = "✅" if result.success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {result.message}")
+        _ = await interaction.response.send_message(
+            fit_discord_content(f"{emoji} {result.message}")
+        )
 
     @group_cmd.command(name="list")
     @app_commands.describe(name="Group name (omit to list all groups)")
     async def group_list(self, interaction: Interaction, name: Optional[str] = None):
-        """List all groups or members of a specific group."""
         if name:
             name = strip_command_prefix(name)
             members = sound_service.resolve_group(name)
@@ -836,12 +899,19 @@ class SoundCommands(commands.Cog):
                     _group_not_found_message(name), ephemeral=True
                 )
                 return
+            descriptions = paginate_discord_lines(members)
             embed = discord.Embed(
-                title=f"🎲 Group: {name}",
-                description=", ".join(members) if members else "(empty)",
+                title=bounded_embed_title(
+                    "🎲 Group: ", escape_discord_text(name)
+                ),
+                description=descriptions[0] if descriptions else "(empty)",
                 color=discord.Color.purple(),
             )
             _ = embed.add_field(name="Members", value=str(len(members)), inline=True)
+            if len(descriptions) > 1:
+                _ = embed.set_footer(
+                    text=f"Showing page 1 of {len(descriptions)}"
+                )
             _ = await interaction.response.send_message(embed=embed)
         else:
             groups = sound_service.list_groups()
@@ -849,14 +919,19 @@ class SoundCommands(commands.Cog):
                 _ = await interaction.response.send_message("No groups yet")
                 return
             lines = [
-                f"**{group_name}** ({len(group.members)})"
+                f"{group_name} ({len(group.members)})"
                 for group_name, group in groups.items()
             ]
+            descriptions = paginate_discord_lines(lines)
             embed = discord.Embed(
-                title=f"🎲 Groups ({len(groups)})",
-                description=", ".join(lines),
+                title=bounded_embed_title("🎲 Groups (", str(len(groups)), ")"),
+                description=descriptions[0],
                 color=discord.Color.purple(),
             )
+            if len(descriptions) > 1:
+                _ = embed.set_footer(
+                    text=f"Showing page 1 of {len(descriptions)}"
+                )
             _ = await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="random")
@@ -985,7 +1060,9 @@ class SoundCommands(commands.Cog):
         )
 
         if not success:
-            _ = await interaction.followup.send(f"❌ {message}")
+            _ = await interaction.followup.send(
+                fit_discord_content(f"❌ {message}")
+            )
             return
 
         # Play counting now happens in the voice service when playback actually
@@ -996,7 +1073,9 @@ class SoundCommands(commands.Cog):
                 interaction.followup.send, name, sound, emoji="🎲"
             )
         else:
-            _ = await interaction.followup.send(f"🎲 {message}")
+            _ = await interaction.followup.send(
+                fit_discord_content(f"🎲 {message}")
+            )
 
     @app_commands.command(name="play")
     @app_commands.guild_only()
@@ -1030,7 +1109,9 @@ class SoundCommands(commands.Cog):
         )
 
         if not success:
-            _ = await interaction.followup.send(f"❌ {message}")
+            _ = await interaction.followup.send(
+                fit_discord_content(f"❌ {message}")
+            )
             return
 
         # Play counting now happens in the voice service; just fetch for the card.
@@ -1040,7 +1121,9 @@ class SoundCommands(commands.Cog):
                 interaction.followup.send, name, sound, emoji="🔊"
             )
         else:
-            _ = await interaction.followup.send(f"🔊 {message}")
+            _ = await interaction.followup.send(
+                fit_discord_content(f"🔊 {message}")
+            )
 
     @app_commands.command(name="playurl")
     @app_commands.guild_only()
@@ -1134,7 +1217,7 @@ class SoundCommands(commands.Cog):
             msg = f"🎵 {message}"
             if timing_str:
                 msg += f"\n⏱️ {timing_str}"
-            _ = await interaction.followup.send(msg)
+            _ = await interaction.followup.send(fit_discord_content(msg))
 
             # Schedule cleanup after playback (give it time to start playing)
             async def cleanup_temp_dir():
@@ -1148,7 +1231,9 @@ class SoundCommands(commands.Cog):
 
             _ = asyncio.create_task(cleanup_temp_dir())
         else:
-            _ = await interaction.followup.send(f"❌ {message}")
+            _ = await interaction.followup.send(
+                fit_discord_content(f"❌ {message}")
+            )
             # Clean up temp directory on failure
             try:
                 shutil.rmtree(temp_dir)
@@ -1196,7 +1281,9 @@ class QueueCog(commands.Cog):
         )
 
         if not success:
-            _ = await interaction.followup.send(f"❌ {message}")
+            _ = await interaction.followup.send(
+                fit_discord_content(f"❌ {message}")
+            )
             return
 
         # Play counting now happens in the voice service; just fetch for the card.
@@ -1206,7 +1293,9 @@ class QueueCog(commands.Cog):
                 interaction.followup.send, name, sound, emoji="⏭️"
             )
         else:
-            _ = await interaction.followup.send(f"⏭️ {message}")
+            _ = await interaction.followup.send(
+                fit_discord_content(f"⏭️ {message}")
+            )
 
     @app_commands.command(name="playnow")
     @app_commands.guild_only()
@@ -1240,7 +1329,9 @@ class QueueCog(commands.Cog):
         )
 
         if not success:
-            _ = await interaction.followup.send(f"❌ {message}")
+            _ = await interaction.followup.send(
+                fit_discord_content(f"❌ {message}")
+            )
             return
 
         # Play counting now happens in the voice service; just fetch for the card.
@@ -1250,7 +1341,9 @@ class QueueCog(commands.Cog):
                 interaction.followup.send, name, sound, emoji="🎵"
             )
         else:
-            _ = await interaction.followup.send(f"🎵 {message}")
+            _ = await interaction.followup.send(
+                fit_discord_content(f"🎵 {message}")
+            )
 
     @app_commands.command(name="queue")
     @app_commands.guild_only()
@@ -1272,18 +1365,28 @@ class QueueCog(commands.Cog):
             status = "⏸️ Paused" if is_paused else "▶️ Now Playing"
             _ = embed.add_field(
                 name=status,
-                value=f"**{current.name}**",
+                value=truncate_discord_text(
+                    f"**{escape_discord_text(current.name)}**",
+                    DISCORD_EMBED_FIELD_MAX_UNITS,
+                ),
                 inline=False,
             )
 
         # Queue
         if queue:
             queue_text = "\n".join(
-                f"{i + 1}. {item.name}" for i, item in enumerate(queue[:10])
+                f"{i + 1}. {escape_discord_text(item.name)}"
+                for i, item in enumerate(queue[:10])
             )
             if len(queue) > 10:
                 queue_text += f"\n... and {len(queue) - 10} more"
-            _ = embed.add_field(name="Up Next", value=queue_text, inline=False)
+            _ = embed.add_field(
+                name="Up Next",
+                value=truncate_discord_text(
+                    queue_text, DISCORD_EMBED_FIELD_MAX_UNITS
+                ),
+                inline=False,
+            )
         else:
             _ = embed.add_field(name="Up Next", value="Nothing queued", inline=False)
 
@@ -1296,7 +1399,9 @@ class QueueCog(commands.Cog):
         assert interaction.guild is not None  # guild_only
         success, message = await voice_service.skip(interaction.guild.id)
         emoji = "⏭️" if success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {message}")
+        _ = await interaction.response.send_message(
+            fit_discord_content(f"{emoji} {message}")
+        )
 
     @app_commands.command(name="stop")
     @app_commands.guild_only()
@@ -1305,7 +1410,9 @@ class QueueCog(commands.Cog):
         assert interaction.guild is not None  # guild_only
         success, message = await voice_service.stop(interaction.guild.id)
         emoji = "⏹️" if success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {message}")
+        _ = await interaction.response.send_message(
+            fit_discord_content(f"{emoji} {message}")
+        )
 
     @app_commands.command(name="loop")
     @app_commands.guild_only()
@@ -1339,7 +1446,9 @@ class QueueCog(commands.Cog):
         )
 
         if not success:
-            _ = await interaction.followup.send(f"❌ {message}")
+            _ = await interaction.followup.send(
+                fit_discord_content(f"❌ {message}")
+            )
             return
 
         # Post clip + card once at loop start (not per iteration). Play
@@ -1351,7 +1460,9 @@ class QueueCog(commands.Cog):
                 interaction.followup.send, name, sound, emoji="🔁"
             )
         else:
-            _ = await interaction.followup.send(f"🔁 {message}")
+            _ = await interaction.followup.send(
+                fit_discord_content(f"🔁 {message}")
+            )
 
     @app_commands.command(name="pause")
     @app_commands.guild_only()
@@ -1360,7 +1471,9 @@ class QueueCog(commands.Cog):
         assert interaction.guild is not None  # guild_only
         success, message = await voice_service.pause(interaction.guild.id)
         emoji = "⏸️" if success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {message}")
+        _ = await interaction.response.send_message(
+            fit_discord_content(f"{emoji} {message}")
+        )
 
     @app_commands.command(name="resume")
     @app_commands.guild_only()
@@ -1369,7 +1482,9 @@ class QueueCog(commands.Cog):
         assert interaction.guild is not None  # guild_only
         success, message = await voice_service.resume(interaction.guild.id)
         emoji = "▶️" if success else "❌"
-        _ = await interaction.response.send_message(f"{emoji} {message}")
+        _ = await interaction.response.send_message(
+            fit_discord_content(f"{emoji} {message}")
+        )
 
     @app_commands.command(name="leave")
     @app_commands.guild_only()
@@ -1517,7 +1632,9 @@ class PlaybackCog(commands.Cog):
             await post_clip_and_card(message.channel.send, played_name, played_sound)
 
         if errors:
-            _ = await message.channel.send(f"❌ Errors: {'; '.join(errors)}")
+            _ = await message.channel.send(
+                fit_discord_content(f"❌ Errors: {'; '.join(errors)}")
+            )
 
 
 class UserSettingsCog(commands.Cog):
@@ -1544,7 +1661,9 @@ class UserSettingsCog(commands.Cog):
             current = state.entrances.get(user_id)
             if current:
                 _ = await interaction.response.send_message(
-                    f"🚪 Your entrance sound is **{current}**"
+                    fit_discord_content(
+                        f"🚪 Your entrance sound is **{escape_discord_text(current)}**"
+                    )
                 )
             else:
                 _ = await interaction.response.send_message(
@@ -1574,7 +1693,9 @@ class UserSettingsCog(commands.Cog):
         _ = state.save()
 
         _ = await interaction.response.send_message(
-            f"✅ Set your entrance sound to **{sound_name}**"
+            fit_discord_content(
+                f"✅ Set your entrance sound to **{escape_discord_text(sound_name)}**"
+            )
         )
 
     @app_commands.command(name="exit")
@@ -1594,7 +1715,9 @@ class UserSettingsCog(commands.Cog):
             current = state.exits.get(user_id)
             if current:
                 _ = await interaction.response.send_message(
-                    f"🚪 Your exit sound is **{current}**"
+                    fit_discord_content(
+                        f"🚪 Your exit sound is **{escape_discord_text(current)}**"
+                    )
                 )
             else:
                 _ = await interaction.response.send_message(
@@ -1624,7 +1747,9 @@ class UserSettingsCog(commands.Cog):
         _ = state.save()
 
         _ = await interaction.response.send_message(
-            f"✅ Set your exit sound to **{sound_name}**"
+            fit_discord_content(
+                f"✅ Set your exit sound to **{escape_discord_text(sound_name)}**"
+            )
         )
 
     @app_commands.command(name="clearentrance")

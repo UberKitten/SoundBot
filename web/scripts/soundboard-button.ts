@@ -150,32 +150,43 @@ export class SoundboardButton extends HTMLElement {
 
   updateLabel() {
     if (!this.sound) {
-      this.innerHTML = `
-        <span>Sound unavilable</span>
-        <span>&nbsp;</span>`;
-
+      const unavailable = document.createElement("span");
+      unavailable.textContent = "Sound unavailable";
+      const spacer = document.createElement("span");
+      spacer.textContent = "\u00A0";
+      this.replaceChildren(unavailable, spacer);
+      this.removeAttribute("title");
+      this.removeAttribute("aria-label");
       return;
     }
 
-    const totalPlays = this.sound.discord_plays + this.sound.twitch_plays + this.sound.web_plays;
-    const sublabels: Map<string | null, string> = new Map([
-      [
-        "count",
-        `${totalPlays === 1 ? "1 Play" : totalPlays.toString().concat(" Plays")}`,
-      ],
-      ["date", this.displayDate],
-    ]);
+    const totalPlays =
+      this.sound.discord_plays +
+      this.sound.twitch_plays +
+      this.sound.web_plays;
+    const sublabels: Record<string, string> = {
+      count: totalPlays === 1 ? "1 Play" : `${totalPlays} Plays`,
+      date: this.displayDate,
+    };
+    const sublabel = this.sort ? sublabels[this.sort] : undefined;
 
-    this.innerHTML = `
-      <span class="icon hidden">&#x1F50A;</span>
-      <span>${this.sound.name}</span>
-      <span class="sortDisplay">${sublabels.get(this.sort) ?? "&nbsp;"}</span>`;
+    const icon = document.createElement("span");
+    icon.className = "icon hidden";
+    icon.textContent = "🔊";
 
-    if (sublabels.get(this.sort)) {
-      this.classList.remove("no-sublabel");
-    } else {
-      this.classList.add("no-sublabel");
-    }
+    const nameLabel = document.createElement("span");
+    nameLabel.className = "sound-name-label";
+    nameLabel.textContent = this.sound.name;
+    nameLabel.title = this.sound.name;
+
+    const sortDisplay = document.createElement("span");
+    sortDisplay.className = "sortDisplay";
+    sortDisplay.textContent = sublabel ?? "\u00A0";
+
+    this.replaceChildren(icon, nameLabel, sortDisplay);
+    this.title = this.sound.name;
+    this.setAttribute("aria-label", `Play sound ${this.sound.name}`);
+    this.classList.toggle("no-sublabel", !sublabel);
   }
 
   attributeChangedCallback(

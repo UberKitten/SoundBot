@@ -20,6 +20,54 @@ from soundbot.models.sounds import (
 
 logger = logging.getLogger(__name__)
 
+BROWSER_H264_PROFILES = frozenset(
+    {"Baseline", "Constrained Baseline", "Main", "High"}
+)
+BROWSER_MP4_FORMATS = frozenset({"mov", "mp4", "m4a", "3gp", "3g2", "mj2"})
+BROWSER_AAC_SAMPLE_RATES = frozenset({44100, 48000})
+
+
+def is_browser_video_compatible(
+    probe: "ProbeResult",
+    *,
+    require_audio: bool = False,
+    validate_audio: bool = True,
+    validate_container: bool = True,
+) -> bool:
+    """Return whether probed streams satisfy the browser-video contract.
+
+    ``validate_audio=False`` is for the source remux decision: only the video
+    stream is copied, while any audio stream is independently encoded to AAC.
+    Cached-output validation also requires an MP4-family container and checks
+    audio, requiring it when the source had audio.
+    """
+    if validate_container and (
+        probe.format_name is None
+        or BROWSER_MP4_FORMATS.isdisjoint(probe.format_name.split(","))
+    ):
+        return False
+    if (
+        not probe.has_video
+        or probe.video_codec != "h264"
+        or probe.video_pixel_format != "yuv420p"
+        or probe.video_profile not in BROWSER_H264_PROFILES
+        or probe.width is None
+        or probe.width < 1
+        or probe.width > 1280
+    ):
+        return False
+    if not validate_audio:
+        return True
+    if not probe.has_audio:
+        return not require_audio
+    return (
+        probe.audio_codec == "aac"
+        and probe.audio_profile == "LC"
+        and probe.sample_rate in BROWSER_AAC_SAMPLE_RATES
+        and probe.channels is not None
+        and 1 <= probe.channels <= 6
+    )
+
 
 def format_ffmpeg_timestamp(value: float) -> str:
     """Serialize a finite media timestamp without exponent notation."""
@@ -52,11 +100,15 @@ class ProbeResult(BaseModel):
     """Result of probing a media file."""
 
     duration: Optional[float] = None
+    format_name: Optional[str] = None
     has_video: bool = False
     has_audio: bool = False
     video_codec: Optional[str] = None
+    video_profile: Optional[str] = None
+    video_pixel_format: Optional[str] = None
     width: Optional[int] = None
     audio_codec: Optional[str] = None
+    audio_profile: Optional[str] = None
     sample_rate: Optional[int] = None
     channels: Optional[int] = None
     title: Optional[str] = None
@@ -110,6 +162,7 @@ class FFmpegService:
             # Get duration and title from format
             if "format" in data:
                 fmt = data["format"]
+                result.format_name = fmt.get("format_name")
                 if "duration" in fmt:
                     result.duration = float(fmt["duration"])
                 tags = fmt.get("tags") or {}
@@ -125,11 +178,14 @@ class FFmpegService:
                 if codec_type == "video":
                     result.has_video = True
                     result.video_codec = stream.get("codec_name")
+                    result.video_profile = stream.get("profile")
+                    result.video_pixel_format = stream.get("pix_fmt")
                     width = stream.get("width")
                     if isinstance(width, int) and width > 0:
                         result.width = width
                 elif codec_type == "audio":
                     result.has_audio = True
+                    result.audio_profile = stream.get("profile")
                     result.audio_codec = stream.get("codec_name")
                     result.sample_rate = int(stream.get("sample_rate", 0)) or None
                     result.channels = stream.get("channels")
@@ -301,26 +357,22 @@ class FFmpegService:
         start: Optional[float] = None,
         end: Optional[float] = None,
     ) -> ProcessResult:
-        """
-        Produce a browser/iOS/Discord-friendly MP4 (H.264 + AAC).
+        """Produce a browser/iOS/Discord-friendly MP4.
 
-        Smart path: if the source video is already H.264, needs no scaling
-        (width ≤ 1280), and no trim is requested, the video stream is
-        stream-copied (remux — near-instant). Otherwise it's re-encoded as
-        8-bit H.264 4:2:0 with libx264, capped at 1280px wide, optionally
-        trimming to start/end (used when falling back to the untrimmed original).
-
-        Audio is ALWAYS transcoded to AAC — opus-in-mp4 doesn't fly with
-        Safari or Discord's inline player. Output is always +faststart.
+        The video stream is copied only when probing proves it is already
+        browser-compatible H.264: 8-bit 4:2:0, at most 1280px wide, in a
+        mainstream profile, with no trim requested. Otherwise it is encoded as
+        H.264 Main/yuv420p. Source audio, when present, is always encoded as
+        AAC-LC 48 kHz stereo, so it does not affect video-remux eligibility.
+        Output is always +faststart.
         """
         remux = False
         if start is None and end is None:
             probe = await self.probe(input_file)
-            if (
-                probe is not None
-                and probe.video_codec == "h264"
-                and probe.width is not None
-                and probe.width <= 1280
+            if probe is not None and is_browser_video_compatible(
+                probe,
+                validate_audio=False,
+                validate_container=False,
             ):
                 remux = True
 
@@ -356,6 +408,12 @@ class FFmpegService:
                 "aac",
                 "-b:a",
                 "128k",
+                "-profile:a",
+                "aac_low",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
                 "-movflags",
                 "+faststart",
                 str(output_file),
@@ -413,17 +471,15 @@ class FFmpegService:
         and mobile); internal width scales with duration so long sounds keep
         waveform detail instead of turning into a mushy strip.
 
-        Audio is AAC (Discord/Safari-safe), output +faststart, like
-        make_browser_video.
+        Audio is AAC-LC 48 kHz stereo (Discord/Safari-safe), and output is
+        +faststart, like make_browser_video.
         """
         # 4:1 aspect; wider canvas for longer sounds (capped: Discord scales
         # display to ~400px anyway, this only buys waveform resolution).
         if duration <= 15:
             width = 640
-        elif duration <= 60:
-            width = 1280
         else:
-            width = 2560
+            width = 1280
         height = width // 4
         size = f"{width}x{height}"
 
@@ -570,6 +626,12 @@ class FFmpegService:
                         "aac",
                         "-b:a",
                         "128k",
+                        "-profile:a",
+                        "aac_low",
+                        "-ar",
+                        "48000",
+                        "-ac",
+                        "2",
                         "-movflags",
                         "+faststart",
                         str(output_file),

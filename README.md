@@ -187,6 +187,8 @@ uv run python -m soundbot
 | `/info <name>` | Get sound details |
 | `/list [search]` | List all sounds or search |
 
+New and renamed sound names may contain up to **500 Unicode code points**. Existing persisted names remain loadable, and the on-disk storage slug is a separate short identifier.
+
 ### Text Commands (Playback)
 
 | Command | Description |

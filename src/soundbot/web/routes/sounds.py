@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import FileResponse
 
 from soundbot.core.state import state
 from soundbot.services.sounds import sound_service
@@ -61,34 +62,24 @@ async def get_sounds():
     return SoundsResponse(sounds=sounds, groups=groups, total=len(sounds))
 
 
-@router.get("/api/sounds/{sound_name}", dependencies=[Depends(no_cache)])
-async def get_sound_info(sound_name: str):
-    """Get information about a specific sound."""
-    sound = sound_service.get_sound(sound_name)
-    if not sound:
-        raise HTTPException(status_code=404, detail="Sound not found")
-
-    return {
-        "name": sound_name,
-        "sound": sound.model_dump(),
-    }
 
 
-@router.get("/api/sounds/{sound_name}/audio")
+@router.get("/api/sounds/{sound_name:path}/audio")
 async def get_sound_audio(sound_name: str):
     """Get the audio file for a sound."""
     audio_path = sound_service.get_audio_path(sound_name)
     if not audio_path or not audio_path.exists():
         raise HTTPException(status_code=404, detail="Audio not found")
 
-    return Response(
-        content=audio_path.read_bytes(),
+    return FileResponse(
+        audio_path,
         media_type="audio/ogg",
-        headers={"Content-Disposition": f'inline; filename="{sound_name}.ogg"'},
+        filename=f"{sound_name}.ogg",
+        content_disposition_type="inline",
     )
 
 
-@router.post("/api/sounds/{sound_name}/play")
+@router.post("/api/sounds/{sound_name:path}/play")
 async def record_web_play(sound_name: str):
     """Record a web UI play for a sound."""
     sound = sound_service.get_sound(sound_name)
@@ -118,7 +109,7 @@ async def record_group_web_play(group_name: str):
 
 
 @router.post(
-    "/api/sounds/{sound_name}/stream-play",
+    "/api/sounds/{sound_name:path}/stream-play",
     dependencies=[Depends(require_api_key)],
 )
 async def record_stream_play(sound_name: str):
@@ -132,6 +123,18 @@ async def record_stream_play(sound_name: str):
     state.save()
 
     return {"ok": True}
+
+@router.get("/api/sounds/{sound_name:path}", dependencies=[Depends(no_cache)])
+async def get_sound_info(sound_name: str):
+    """Get information about a specific sound."""
+    sound = sound_service.get_sound(sound_name)
+    if not sound:
+        raise HTTPException(status_code=404, detail="Sound not found")
+
+    return {
+        "name": sound_name,
+        "sound": sound.model_dump(),
+    }
 
 
 @router.get("/api/search", dependencies=[Depends(no_cache)])

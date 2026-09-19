@@ -13,10 +13,23 @@ RandomMode = Literal["together", "separate"]
 
 TRIM_TIME_ZERO_EPSILON = 1e-6
 
+SOUND_NAME_MAX_CODE_POINTS = 500
+
+
+def validate_sound_name_length(name: str) -> str:
+    """Validate a new or renamed sound name without constraining its alphabet."""
+    if not name:
+        raise ValueError("Sound name cannot be empty")
+    if len(name) > SOUND_NAME_MAX_CODE_POINTS:
+        raise ValueError(
+            f"Sound name must be at most {SOUND_NAME_MAX_CODE_POINTS} Unicode code points"
+        )
+    return name
+
 
 def sanitize_name(name: str) -> str:
     """Sanitize a sound name into the established persisted path form."""
-    name = re.sub(r'[<>:"/\\|?*]', "", name)
+    name = re.sub(r'[\x00-\x1f\x7f<>:"/\\|?*]', "", name)
     name = re.sub(r"\s+", "_", name)
     return name.lower().strip("_")[:50]
 
@@ -25,7 +38,8 @@ def allocate_sound_directory(name: str, used_directories: Collection[str]) -> st
     """Allocate a deterministic collision-safe directory for a new sound."""
     base = sanitize_name(name)
     if not base:
-        raise ValueError(f"'{name}' is not a valid sound name")
+        digest = hashlib.sha256(name.encode()).hexdigest()[:16]
+        base = f"sound-{digest}"
     used = set(used_directories)
     if base not in used:
         return base
