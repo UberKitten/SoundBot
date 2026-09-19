@@ -306,9 +306,9 @@ class FFmpegService:
 
         Smart path: if the source video is already H.264, needs no scaling
         (width ≤ 1280), and no trim is requested, the video stream is
-        stream-copied (remux — near-instant). Otherwise it's re-encoded with
-        libx264 capped at 1280px wide, optionally trimming to start/end
-        (used when falling back to the untrimmed original).
+        stream-copied (remux — near-instant). Otherwise it's re-encoded as
+        8-bit H.264 4:2:0 with libx264, capped at 1280px wide, optionally
+        trimming to start/end (used when falling back to the untrimmed original).
 
         Audio is ALWAYS transcoded to AAC — opus-in-mp4 doesn't fly with
         Safari or Discord's inline player. Output is always +faststart.
@@ -343,6 +343,10 @@ class FFmpegService:
                     "23",
                     "-vf",
                     "scale='min(1280,iw)':-2",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-profile:v",
+                    "main",
                 ]
             )
 
