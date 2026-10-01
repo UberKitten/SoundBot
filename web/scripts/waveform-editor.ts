@@ -88,6 +88,11 @@ export interface WaveformEditorOptions {
   extraDirty?: () => boolean;
   /** Fires when the editor closes without complete() (cancel/Esc/backdrop). */
   onDismissed?: () => void;
+  /** Draft-only mobile progression; desktop keeps the complete editor visible. */
+  mobileDraftFlow?: {
+    sourceUrl: string;
+    sourceTitle: string | null;
+  };
 }
 
 interface EditorState {
@@ -233,17 +238,41 @@ export function openWaveformEditor(
   let loopBtn: HTMLButtonElement | null = null;
   let playheadReadout: HTMLSpanElement | null = null;
   let regionReadout: HTMLSpanElement | null = null;
+  let mobileStep: "source" | "trim" | "name" = "trim";
 
+  function setMobileStep(step: "source" | "trim" | "name"): void {
+    if (mobileStep === "trim" && step !== "trim") stopPlayback();
+    mobileStep = step;
+    modal.modal.dataset.mobileStep = step;
+    modal.body
+      .querySelectorAll<HTMLButtonElement>("[data-mobile-step-target]")
+      .forEach((button) => {
+        const current = button.dataset.mobileStepTarget === step;
+        button.classList.toggle("current", current);
+        if (current) button.setAttribute("aria-current", "step");
+        else button.removeAttribute("aria-current");
+      });
+    modal.body.scrollTop = 0;
+    window.setTimeout(() => {
+      const target =
+        step === "name"
+          ? modal.body.querySelector<HTMLInputElement>(".draft-name-field input")
+          : modal.body.querySelector<HTMLButtonElement>(
+              `[data-mobile-step-target="${step}"]`
+            );
+      target?.focus();
+    }, 0);
+  }
 
   function updatePlayheadReadout(t: number): void {
     if (playheadReadout) {
-      playheadReadout.textContent = `⏱ ${formatTimestamp(Math.max(0, t))}`;
+      playheadReadout.textContent = `Playhead ${formatTimestamp(Math.max(0, t))}`;
     }
   }
 
   function updateRegionReadout(): void {
     if (!regionReadout) return;
-    regionReadout.textContent = `region ${formatTimestamp(
+    regionReadout.textContent = `Duration ${formatTimestamp(
       Math.max(0, state.end - state.start)
     )}`;
   }
@@ -314,8 +343,8 @@ export function openWaveformEditor(
     if (!playBtn) return;
     const playing = !!wavesurfer && wavesurfer.isPlaying();
     playBtn.innerHTML = playing
-      ? `${ICON_PAUSE}<span>Region</span>`
-      : `${ICON_PLAY}<span>Region</span>`;
+      ? `${ICON_PAUSE}<span>Pause selection</span>`
+      : `${ICON_PLAY}<span>Play selection</span>`;
     playBtn.setAttribute("aria-pressed", playing ? "true" : "false");
   }
 
@@ -399,6 +428,25 @@ export function openWaveformEditor(
 
   function buildUI(info: EditorInfo): void {
     modal.body.innerHTML = "";
+    if (opts.mobileDraftFlow) {
+      const progress = document.createElement("nav");
+      progress.className = "draft-progress";
+      progress.setAttribute("aria-label", "Add sound progress");
+      const labels: Array<["source" | "trim" | "name", string]> = [
+        ["source", "Source"],
+        ["trim", "Trim"],
+        ["name", "Name & save"],
+      ];
+      labels.forEach(([step, label], index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.mobileStepTarget = step;
+        button.innerHTML = `<span>${index + 1}</span>${label}`;
+        button.addEventListener("click", () => setMobileStep(step));
+        progress.appendChild(button);
+      });
+      modal.body.appendChild(progress);
+    }
 
     // -- draft/banner note --
     if (opts.banner) {
@@ -408,26 +456,51 @@ export function openWaveformEditor(
       modal.body.appendChild(banner);
     }
 
-    // -- source meta line at the top of the body --
-    if (info.source_title || info.source_url) {
-      const meta = document.createElement("div");
-      meta.className = "trim-source";
-      if (info.source_url) {
+    // -- source summary (also the first mobile step for a new draft) --
+    const sourceUrl = info.source_url || opts.mobileDraftFlow?.sourceUrl || null;
+    const sourceTitle = info.source_title || opts.mobileDraftFlow?.sourceTitle;
+    if (sourceTitle || sourceUrl) {
+      const meta = document.createElement("section");
+      meta.className = "trim-source draft-source-step";
+      if (opts.mobileDraftFlow) {
+        const eyebrow = document.createElement("div");
+        eyebrow.className = "draft-source-status";
+        eyebrow.textContent = "Source ready";
+        meta.appendChild(eyebrow);
+      }
+      if (sourceUrl) {
         const a = document.createElement("a");
-        a.href = info.source_url;
+        a.href = sourceUrl;
         a.target = "_blank";
         a.rel = "noopener noreferrer";
-        a.textContent = info.source_title || info.source_url;
+        a.textContent = sourceTitle || sourceUrl;
         meta.appendChild(a);
-      } else if (info.source_title) {
-        meta.textContent = info.source_title;
+        if (sourceTitle) {
+          const address = document.createElement("div");
+          address.className = "draft-source-url";
+          address.textContent = sourceUrl;
+          meta.appendChild(address);
+        }
+      } else if (sourceTitle) {
+        meta.append(sourceTitle);
+      }
+      if (opts.mobileDraftFlow) {
+        const sourceActions = document.createElement("div");
+        sourceActions.className = "mobile-step-actions";
+        const next = document.createElement("button");
+        next.type = "button";
+        next.className = "trim-btn trim-btn-primary";
+        next.textContent = "Continue to trim";
+        next.addEventListener("click", () => setMobileStep("trim"));
+        sourceActions.appendChild(next);
+        meta.appendChild(sourceActions);
       }
       modal.body.appendChild(meta);
     }
 
     // -- waveform container --
     const waveContainer = document.createElement("div");
-    waveContainer.className = "trim-waveform";
+    waveContainer.className = "trim-waveform draft-trim-step";
     modal.body.appendChild(waveContainer);
 
     // ---- click-to-seek + hover time tooltip ------------------------------
@@ -549,13 +622,13 @@ export function openWaveformEditor(
 
     // -- primary transport row --
     const transport = document.createElement("div");
-    transport.className = "trim-transport";
+    transport.className = "trim-transport draft-trim-step";
 
     playBtn = document.createElement("button");
     playBtn.type = "button";
-    playBtn.className = "trim-btn trim-btn-primary";
+    playBtn.className = "trim-btn trim-btn-primary trim-play-selection";
     playBtn.title =
-      "Play region (Space) — starts from the playhead when it's inside the region";
+      "Play selection (Space) — starts from the playhead when it is inside the selection";
     playBtn.addEventListener("click", togglePlayRegion);
 
     const startEdgeBtn = document.createElement("button");
@@ -603,7 +676,7 @@ export function openWaveformEditor(
 
     // -- edge editors (start / end) with timestamp text inputs + nudges --
     const edges = document.createElement("div");
-    edges.className = "trim-edges";
+    edges.className = "trim-edges draft-trim-step";
 
     const makeEdge = (label: string, which: "start" | "end") => {
       const wrap = document.createElement("div");
@@ -731,28 +804,88 @@ export function openWaveformEditor(
 
     tools.appendChild(zoomWrap);
     tools.appendChild(volWrap);
-    modal.body.appendChild(tools);
 
-    // -- mode-specific footer --
-    modal.body.appendChild(opts.buildFooter(core));
+    // Precision nudges and less-common playback settings stay available
+    // without competing with the primary selection controls.
+    const advanced = document.createElement("details");
+    advanced.className = "trim-advanced draft-trim-step";
+    const advancedSummary = document.createElement("summary");
+    advancedSummary.textContent = "Fine tune & preview settings";
+    advanced.appendChild(advancedSummary);
+    const fineGrid = document.createElement("div");
+    fineGrid.className = "trim-fine-grid";
+    edges.querySelectorAll<HTMLElement>(".trim-edge").forEach((edge) => {
+      const heading = edge.querySelector(".trim-edge-heading")?.textContent ?? "";
+      const nudges = edge.querySelector<HTMLElement>(".trim-nudges");
+      if (!nudges) return;
+      const group = document.createElement("div");
+      group.className = "trim-fine-group";
+      const label = document.createElement("div");
+      label.className = "trim-edge-heading";
+      label.textContent = `${heading} precision`;
+      group.appendChild(label);
+      group.appendChild(nudges);
+      fineGrid.appendChild(group);
+    });
+    advanced.appendChild(fineGrid);
+    advanced.appendChild(tools);
 
-    // -- hint line --
     const hint = document.createElement("div");
     hint.className = "trim-hint";
-    hint.textContent =
-      "Click waveform to move playhead · Space play/pause (from playhead when inside region) · " +
-      "s / e check edges · l loop · , . nudge nearest edge";
-    modal.body.appendChild(hint);
+    hint.innerHTML =
+      '<span class="trim-hint-pointer">Click the waveform to move the playhead · Space play/pause · s / e check edges · l loop · , . nudge nearest edge</span>' +
+      '<span class="trim-hint-touch">Tap the waveform to move the playhead; drag the selection or its edge handles to trim.</span>';
+    advanced.appendChild(hint);
+    modal.body.appendChild(advanced);
+
+    if (opts.mobileDraftFlow) {
+      const trimActions = document.createElement("div");
+      trimActions.className = "mobile-step-actions draft-trim-step";
+      const back = document.createElement("button");
+      back.type = "button";
+      back.className = "trim-btn";
+      back.textContent = "Back";
+      back.addEventListener("click", () => setMobileStep("source"));
+      const next = document.createElement("button");
+      next.type = "button";
+      next.className = "trim-btn trim-btn-primary";
+      next.textContent = "Next: name & save";
+      next.addEventListener("click", () => setMobileStep("name"));
+      trimActions.append(back, next);
+      modal.body.appendChild(trimActions);
+    }
+
+    // -- mode-specific footer --
+    const footer = opts.buildFooter(core);
+    if (opts.mobileDraftFlow) {
+      footer.classList.add("draft-name-step");
+      const actions = footer.querySelector(".draft-actions");
+      if (actions) {
+        const back = document.createElement("button");
+        back.type = "button";
+        back.className = "trim-btn mobile-name-back";
+        back.textContent = "Back";
+        back.addEventListener("click", () => setMobileStep("trim"));
+        actions.insertBefore(back, actions.firstChild);
+      }
+    }
+    modal.body.appendChild(footer);
+    if (opts.mobileDraftFlow) setMobileStep(mobileStep);
 
     // ---- create WaveSurfer ----
     const playbackBackend = selectWaveformPlaybackBackend();
+    const waveformHeight = window.matchMedia(
+      "(max-width: 719px) and (max-height: 680px)"
+    ).matches
+      ? 120
+      : 160;
     const ws = WaveSurfer.create({
       container: waveContainer,
       // iOS/iPadOS uses WaveSurfer's media-element transport bridged through a
       // user-activated GainNode. Desktop keeps the decoded WebAudio backend for
       // sample-accurate seeks on VBR MP3s.
       backend: playbackBackend,
-      height: 160,
+      height: waveformHeight,
       waveColor: "rgba(255,255,255,0.35)",
       progressColor: "rgba(66,65,179,0.9)",
       cursorColor: "#bf0000",

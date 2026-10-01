@@ -22,7 +22,11 @@ import {
 
 
 /** Open the draft editor for a just-created draft. */
-export function openDraftEditor(draft: DraftInfo, onSaved?: () => void): void {
+export function openDraftEditor(
+  draft: DraftInfo,
+  onSaved?: () => void,
+  submittedUrl?: string
+): void {
   // Pause any soundboard playback while editing (avoids overlapping audio).
   stopMainAudio();
   stopAllButtonAudio();
@@ -31,9 +35,9 @@ export function openDraftEditor(draft: DraftInfo, onSaved?: () => void): void {
   let nameTouched = false;
 
   openWaveformEditor({
-    title: "New sound (draft)",
+    title: "Add sound",
     className: "trim-editor draft-editor",
-    banner: "Draft — nothing is saved yet",
+    banner: "Nothing is saved until you name and save this sound.",
     confirmDismissMessage:
       "Discard this draft? The downloaded audio will be deleted.",
     load: () =>
@@ -45,6 +49,10 @@ export function openDraftEditor(draft: DraftInfo, onSaved?: () => void): void {
         source_title: draft.source_title,
         source_url: draft.source_url,
       }),
+    mobileDraftFlow: {
+      sourceUrl: draft.source_url || submittedUrl || "",
+      sourceTitle: draft.source_title,
+    },
     extraDirty: () => nameTouched,
     buildFooter: (c) => buildDraftFooter(c),
     onDismissed: () => {
@@ -55,6 +63,13 @@ export function openDraftEditor(draft: DraftInfo, onSaved?: () => void): void {
   function buildDraftFooter(c: WaveformEditorCore): HTMLElement {
     const footer = document.createElement("div");
     footer.className = "trim-footer draft-footer";
+    const heading = document.createElement("div");
+    heading.className = "draft-name-heading";
+    const headingTitle = document.createElement("strong");
+    headingTitle.textContent = "Name & save";
+    const headingCopy = document.createElement("span");
+    headingCopy.textContent = "Choose the final sound name, then save it.";
+    heading.append(headingTitle, headingCopy);
 
     // -- name field (chosen at the end, once you know what you clipped) --
     const nameField = document.createElement("div");
@@ -133,6 +148,7 @@ export function openDraftEditor(draft: DraftInfo, onSaved?: () => void): void {
     actions.appendChild(cancelBtn);
     actions.appendChild(saveBtn);
 
+    footer.appendChild(heading);
     footer.appendChild(nameField);
     footer.appendChild(errorLine);
     footer.appendChild(actions);

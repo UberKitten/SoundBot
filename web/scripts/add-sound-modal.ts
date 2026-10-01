@@ -7,6 +7,20 @@
 import { ApiError, createDraft, discardDraft } from "admin-api";
 import { openDraftEditor } from "draft-editor";
 import { openModal } from "modal";
+function normalizeSourceUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value);
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      !parsed.hostname
+    ) {
+      return null;
+    }
+    return parsed.href;
+  } catch {
+    return null;
+  }
+}
 
 export function openAddSoundModal(onAdded?: () => void): void {
   let submitting = false;
@@ -51,14 +65,21 @@ export function openAddSoundModal(onAdded?: () => void): void {
   urlInput.className = "admin-input";
   urlInput.autocomplete = "off";
   urlInput.required = true;
-  urlInput.placeholder = "https://…";
+  urlInput.placeholder = "https://example.com/video";
+  urlInput.setAttribute("aria-describedby", "add-sound-url-hint");
+  const urlHint = document.createElement("div");
+  urlHint.id = "add-sound-url-hint";
+  urlHint.className = "admin-hint";
+  urlHint.textContent = "Use a complete http:// or https:// link.";
   urlField.appendChild(urlLabel);
   urlField.appendChild(urlInput);
+  urlField.appendChild(urlHint);
 
   // -- error line --
   const errorLine = document.createElement("div");
   errorLine.className = "admin-error";
   errorLine.hidden = true;
+  errorLine.setAttribute("role", "alert");
 
   // -- actions --
   const actions = document.createElement("div");
@@ -67,6 +88,8 @@ export function openAddSoundModal(onAdded?: () => void): void {
   const status = document.createElement("div");
   status.className = "admin-status";
   status.hidden = true;
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
 
   const cancelBtn = document.createElement("button");
   cancelBtn.type = "button";
@@ -77,7 +100,7 @@ export function openAddSoundModal(onAdded?: () => void): void {
   const submitBtn = document.createElement("button");
   submitBtn.type = "submit";
   submitBtn.className = "trim-btn trim-btn-primary";
-  submitBtn.textContent = "Download";
+  submitBtn.textContent = "Fetch & edit";
 
   actions.appendChild(status);
   actions.appendChild(cancelBtn);
@@ -94,30 +117,57 @@ export function openAddSoundModal(onAdded?: () => void): void {
     urlInput.disabled = busy;
     submitBtn.disabled = busy;
     cancelBtn.disabled = busy;
-    submitBtn.textContent = busy ? "Downloading…" : "Download";
+    submitBtn.textContent = busy ? "Preparing…" : "Fetch & edit";
     status.hidden = !busy;
     if (busy) {
       status.innerHTML =
-        '<span class="admin-spinner" aria-hidden="true"></span>downloading… this can take a minute';
+        '<span class="admin-spinner" aria-hidden="true"></span><span>Fetching the source and preparing audio… This may take a minute.</span>';
       modal.modal.classList.add("busy");
     } else {
       modal.modal.classList.remove("busy");
     }
   };
 
-  const showError = (msg: string) => {
+  const showError = (msg: string, invalidUrl = false) => {
     errorLine.hidden = false;
     errorLine.textContent = msg;
+    if (invalidUrl) urlInput.setAttribute("aria-invalid", "true");
   };
+
+  const validateUrl = (showMessage: boolean): string | null => {
+    const value = urlInput.value.trim();
+    if (!value) {
+      if (showMessage) showError("Please enter a URL.", true);
+      return null;
+    }
+    const normalized = normalizeSourceUrl(value);
+    if (!normalized) {
+      if (showMessage) {
+        showError("Enter a complete http:// or https:// URL.", true);
+      }
+      return null;
+    }
+    urlInput.removeAttribute("aria-invalid");
+    if (!submitting) errorLine.hidden = true;
+    return normalized;
+  };
+
+  urlInput.addEventListener("input", () => {
+    if (!urlInput.value.trim()) {
+      urlInput.removeAttribute("aria-invalid");
+      errorLine.hidden = true;
+      return;
+    }
+    validateUrl(true);
+  });
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     if (submitting) return;
     errorLine.hidden = true;
 
-    const url = urlInput.value.trim();
+    const url = validateUrl(true);
     if (!url) {
-      showError("Please enter a URL.");
       urlInput.focus();
       return;
     }
@@ -133,7 +183,7 @@ export function openAddSoundModal(onAdded?: () => void): void {
         // Success — close this modal and jump into the draft editor.
         submitting = false;
         modal.forceClose();
-        openDraftEditor(draft, onAdded);
+        openDraftEditor(draft, onAdded, url);
       })
       .catch((err) => {
         if (dismissed) return;
