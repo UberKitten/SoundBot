@@ -332,6 +332,10 @@ soundboard-button,
   border-radius: var(--corner-rounding);
   overflow: hidden;
   margin-bottom: var(--standard-padding);
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: pan-y pinch-zoom;
 }
 
 /* Hover time tooltip (follows the mouse along the waveform). */
@@ -367,25 +371,28 @@ soundboard-button,
   z-index: 2;
 }
 
-/* Region resize handles: keep the 12px HIT AREA (the fix for a region
- * starting at 0 — the handle extends inward, so there's something to grip
- * at the container's edge) but render only a slim [ ] bracket so short
- * sounds' waveforms aren't obscured. ::before/::after aren't allowed on
- * ::part(), so the bracket is drawn with layered background gradients:
- * a 3px vertical bar at the outer edge + 3px ticks top and bottom. */
+/* Region resize handles stay fully inside the selected region at its left and
+ * right edges. Cap each target at half the region width so very short
+ * selections never have overlapping, ambiguous handles. */
 .trim-waveform ::part(region-handle) {
   width: 12px !important;
+  max-width: 50%;
+  box-sizing: border-box;
   border: none !important;
-  background-color: transparent;
+  background-color: rgba(66, 65, 179, 0.08);
   background-repeat: no-repeat;
   z-index: 4 !important;
   touch-action: none;
-  --handle-ink: rgba(255, 255, 255, 0.55);
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  --handle-ink: rgba(255, 255, 255, 0.72);
 }
 
 .trim-waveform ::part(region-handle):hover,
 .trim-waveform ::part(region-handle):active {
-  --handle-ink: rgba(255, 255, 255, 0.95);
+  background-color: rgba(66, 65, 179, 0.18);
+  --handle-ink: rgba(255, 255, 255, 0.98);
 }
 
 .trim-waveform ::part(region-handle-left) {
@@ -394,7 +401,7 @@ soundboard-button,
     linear-gradient(var(--handle-ink), var(--handle-ink)),
     linear-gradient(var(--handle-ink), var(--handle-ink));
   background-position: left center, left top, left bottom;
-  background-size: 3px 100%, 9px 3px, 9px 3px;
+  background-size: 4px 100%, 16px 4px, 16px 4px;
   border-radius: 2px 0 0 2px;
 }
 
@@ -404,7 +411,7 @@ soundboard-button,
     linear-gradient(var(--handle-ink), var(--handle-ink)),
     linear-gradient(var(--handle-ink), var(--handle-ink));
   background-position: right center, right top, right bottom;
-  background-size: 3px 100%, 9px 3px, 9px 3px;
+  background-size: 4px 100%, 16px 4px, 16px 4px;
   border-radius: 0 2px 2px 0;
 }
 
@@ -732,7 +739,7 @@ soundboard-button,
   }
 
   .trim-waveform ::part(region-handle) {
-    width: 28px !important;
+    width: 44px !important;
   }
 }
 
@@ -750,6 +757,9 @@ soundboard-button,
     min-width: 44px;
     padding: 0;
   }
+  .trim-waveform ::part(region-handle) {
+    width: 44px !important;
+  }
 
   .admin-modal-overlay {
     align-items: flex-end;
@@ -758,6 +768,10 @@ soundboard-button,
 
   .admin-modal.add-sound,
   .admin-modal.trim-editor {
+    --modal-safe-area-top: env(safe-area-inset-top, 0px);
+    --modal-safe-area-right: env(safe-area-inset-right, 0px);
+    --modal-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --modal-safe-area-left: env(safe-area-inset-left, 0px);
     display: flex;
     width: 100%;
     max-width: none;
@@ -773,9 +787,11 @@ soundboard-button,
 
   .admin-modal.add-sound .modal-header,
   .admin-modal.trim-editor .modal-header {
-    min-height: calc(56px + env(safe-area-inset-top));
+    min-height: calc(56px + var(--modal-safe-area-top));
     flex: 0 0 auto;
-    padding-top: calc(var(--standard-padding) + env(safe-area-inset-top));
+    padding-top: calc(var(--standard-padding) + var(--modal-safe-area-top));
+    padding-right: calc(var(--standard-padding) + var(--modal-safe-area-right));
+    padding-left: calc(var(--standard-padding) + var(--modal-safe-area-left));
     background-color: var(--bg-color);
   }
 
@@ -788,7 +804,9 @@ soundboard-button,
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
-    padding-bottom: max(var(--standard-padding), env(safe-area-inset-bottom));
+    padding-right: calc(var(--standard-padding) + var(--modal-safe-area-right));
+    padding-bottom: 0;
+    padding-left: calc(var(--standard-padding) + var(--modal-safe-area-left));
   }
 
   .draft-progress {
@@ -872,19 +890,37 @@ soundboard-button,
 
   .mobile-step-actions {
     position: sticky;
-    bottom: calc(var(--standard-padding) * -1);
+    bottom: 0;
     z-index: 7;
     display: flex;
     gap: 8px;
     justify-content: flex-end;
     margin-top: auto;
     padding: var(--standard-padding) 0
-      max(var(--standard-padding), env(safe-area-inset-bottom));
+      calc(var(--standard-padding) * 1.5 + var(--modal-safe-area-bottom));
     background: linear-gradient(
       to bottom,
       rgba(31, 31, 31, 0),
       var(--bg-color) 16px
     );
+  }
+
+  .trim-editor:not(.draft-editor) .trim-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 7;
+    margin-top: auto;
+    padding: var(--standard-padding) 0
+      calc(var(--standard-padding) * 1.5 + var(--modal-safe-area-bottom));
+    background: linear-gradient(
+      to bottom,
+      rgba(31, 31, 31, 0),
+      var(--bg-color) 16px
+    );
+  }
+
+  .trim-editor:not(.draft-editor) .trim-footer .trim-btn-primary {
+    flex: 1 1 7rem;
   }
 
   .mobile-step-actions .trim-btn-primary {
@@ -963,12 +999,12 @@ soundboard-button,
 
   .draft-name-step .draft-actions {
     position: sticky;
-    bottom: calc(var(--standard-padding) * -1);
+    bottom: 0;
     z-index: 7;
     width: 100%;
     margin-top: auto;
     padding: var(--standard-padding) 0
-      max(var(--standard-padding), env(safe-area-inset-bottom));
+      calc(var(--standard-padding) * 1.5 + var(--modal-safe-area-bottom));
     background: linear-gradient(
       to bottom,
       rgba(31, 31, 31, 0),
@@ -994,10 +1030,10 @@ soundboard-button,
 
   .add-sound .admin-actions {
     position: sticky;
-    bottom: calc(var(--standard-padding) * -1);
+    bottom: 0;
     margin-top: auto;
     padding: var(--standard-padding) 0
-      max(var(--standard-padding), env(safe-area-inset-bottom));
+      calc(var(--standard-padding) * 1.5 + var(--modal-safe-area-bottom));
     background-color: var(--bg-color);
   }
 
@@ -1012,8 +1048,8 @@ soundboard-button,
   }
 
   .admin-modal.trim-editor .modal-header {
-    min-height: calc(48px + env(safe-area-inset-top));
-    padding-top: calc(8px + env(safe-area-inset-top));
+    min-height: calc(48px + var(--modal-safe-area-top));
+    padding-top: calc(8px + var(--modal-safe-area-top));
     padding-bottom: 8px;
   }
 }
