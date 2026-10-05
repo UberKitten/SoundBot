@@ -30,6 +30,62 @@ export interface ModalOptions {
 
 let activeModal: ModalController | null = null;
 
+/** Keep mobile sheets inside the visible viewport while a soft keyboard is open. */
+function trackVisualViewport(overlay: HTMLElement): () => void {
+  const viewport = window.visualViewport;
+  if (!viewport) return () => {};
+
+  let frame = 0;
+  const properties = [
+    "--admin-modal-visual-top",
+    "--admin-modal-visual-height",
+    "--admin-modal-visual-bottom-overlap",
+  ];
+
+  const apply = () => {
+    frame = 0;
+    // Let the browser own pinch zoom; resize again when scale returns to 1.
+    if (viewport.scale !== 1) {
+      properties.forEach((property) => overlay.style.removeProperty(property));
+      return;
+    }
+
+    const layoutHeight =
+      document.documentElement.clientHeight || window.innerHeight;
+    const bottomOverlap = Math.max(
+      0,
+      layoutHeight - (viewport.offsetTop + viewport.height)
+    );
+    overlay.style.setProperty(
+      "--admin-modal-visual-top",
+      `${Math.max(0, viewport.offsetTop)}px`
+    );
+    overlay.style.setProperty(
+      "--admin-modal-visual-height",
+      `${Math.max(0, viewport.height)}px`
+    );
+    overlay.style.setProperty(
+      "--admin-modal-visual-bottom-overlap",
+      `${bottomOverlap}px`
+    );
+  };
+
+  const schedule = () => {
+    if (frame) return;
+    frame = window.requestAnimationFrame(apply);
+  };
+
+  viewport.addEventListener("resize", schedule);
+  viewport.addEventListener("scroll", schedule);
+  apply();
+
+  return () => {
+    viewport.removeEventListener("resize", schedule);
+    viewport.removeEventListener("scroll", schedule);
+    if (frame) window.cancelAnimationFrame(frame);
+  };
+}
+
 export function getActiveModal(): ModalController | null {
   return activeModal;
 }
@@ -85,12 +141,14 @@ export function openModal(options: ModalOptions): ModalController {
   modal.appendChild(body);
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
+  const stopTrackingVisualViewport = trackVisualViewport(overlay);
 
   let closed = false;
 
   const finalize = () => {
     if (closed) return;
     closed = true;
+    stopTrackingVisualViewport();
     overlay.remove();
     document.removeEventListener("keydown", onKeydown, true);
     if (activeModal === controller) activeModal = null;
