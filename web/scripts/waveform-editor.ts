@@ -236,8 +236,8 @@ export function openWaveformEditor(
   let endInput: HTMLInputElement | null = null;
   let playBtn: HTMLButtonElement | null = null;
   let loopBtn: HTMLButtonElement | null = null;
-  let playheadReadout: HTMLSpanElement | null = null;
-  let regionReadout: HTMLSpanElement | null = null;
+  let playheadReadout: HTMLOutputElement | null = null;
+  let regionReadout: HTMLOutputElement | null = null;
   let mobileStep: "source" | "trim" | "name" = "trim";
 
   function setMobileStep(step: "source" | "trim" | "name"): void {
@@ -266,15 +266,15 @@ export function openWaveformEditor(
 
   function updatePlayheadReadout(t: number): void {
     if (playheadReadout) {
-      playheadReadout.textContent = `Playhead ${formatTimestamp(Math.max(0, t))}`;
+      playheadReadout.value = formatTimestamp(Math.max(0, t));
     }
   }
 
   function updateRegionReadout(): void {
     if (!regionReadout) return;
-    regionReadout.textContent = `Duration ${formatTimestamp(
+    regionReadout.value = formatTimestamp(
       Math.max(0, state.end - state.start)
-    )}`;
+    );
   }
 
   function destroyWavesurfer(): void {
@@ -661,14 +661,38 @@ export function openWaveformEditor(
     // -- playhead position + region length readouts --
     const readouts = document.createElement("div");
     readouts.className = "trim-readouts";
-    playheadReadout = document.createElement("span");
-    playheadReadout.className = "trim-readout";
-    playheadReadout.title = "Playhead position (click the waveform to move it)";
-    regionReadout = document.createElement("span");
-    regionReadout.className = "trim-readout";
-    regionReadout.title = "Region length";
-    readouts.appendChild(playheadReadout);
-    readouts.appendChild(regionReadout);
+
+    const makeReadout = (
+      label: string,
+      title: string
+    ): [HTMLSpanElement, HTMLOutputElement] => {
+      const readout = document.createElement("span");
+      readout.className = "trim-readout";
+      readout.title = title;
+
+      const readoutLabel = document.createElement("span");
+      readoutLabel.className = "trim-readout-label";
+      readoutLabel.textContent = label;
+
+      const value = document.createElement("output");
+      value.className = "trim-readout-value";
+      value.setAttribute("aria-label", title);
+
+      readout.append(readoutLabel, value);
+      return [readout, value];
+    };
+
+    const [playhead, playheadValue] = makeReadout(
+      "Playhead",
+      "Playhead position (click the waveform to move it)"
+    );
+    const [duration, durationValue] = makeReadout(
+      "Duration",
+      "Region length"
+    );
+    playheadReadout = playheadValue;
+    regionReadout = durationValue;
+    readouts.append(playhead, duration);
     transport.appendChild(readouts);
 
     modal.body.appendChild(transport);
