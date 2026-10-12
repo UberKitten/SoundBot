@@ -171,9 +171,18 @@ export function openModal(options: ModalOptions): ModalController {
     }
   };
 
+  let backdropPointerStarted = false;
   closeBtn.addEventListener("click", guardedClose);
+  overlay.addEventListener("pointerdown", (e) => {
+    backdropPointerStarted = e.target === overlay;
+  });
+  overlay.addEventListener("pointercancel", () => {
+    backdropPointerStarted = false;
+  });
   overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) guardedClose();
+    const shouldClose = e.target === overlay && backdropPointerStarted;
+    backdropPointerStarted = false;
+    if (shouldClose) guardedClose();
   });
   document.addEventListener("keydown", onKeydown, true);
 
