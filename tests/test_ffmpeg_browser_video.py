@@ -510,3 +510,116 @@ async def test_failed_candidate_verification_preserves_existing_cache(
 
     assert cache.read_bytes() == cached_bytes
     assert list(sound_dir.glob(".retained_clip-*.mp4")) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    FFMPEG is None or FFPROBE is None,
+    reason="real trim timeline regression requires ffmpeg and ffprobe",
+)
+@pytest.mark.parametrize("trim_start", [3.25, 3.277])
+async def test_non_keyframe_trim_preserves_visual_and_audio_timeline(
+    tmp_path: Path, trim_start: float
+) -> None:
+    """Exercise the actual original -> trimmed MKV -> browser MP4 pipeline."""
+    assert FFMPEG is not None
+    from array import array
+
+    from soundbot.models.sounds import Timestamps
+
+    sound_dir = tmp_path / "timeline"
+    sound_dir.mkdir()
+    source = sound_dir / "original.mkv"
+    trimmed = sound_dir / "trimmed.mkv"
+    # A single 10-second GOP forces a seek into keyframe preroll. Two matching
+    # flashes/beeps expose both the initial offset and an incorrectly cut tail.
+    pulses = "between(t,4.25,4.49)+between(t,5.75,5.99)"
+    _run(
+        [
+            FFMPEG, "-v", "error", "-y",
+            "-f", "lavfi", "-i", "color=black:size=160x90:rate=24:duration=10",
+            "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=10",
+            "-vf", f"drawbox=color=white:t=fill:enable='{pulses}'",
+            "-af", f"volume=0:enable='not({pulses})'",
+            "-c:v", "libx264", "-g", "240", "-sc_threshold", "0",
+            "-pix_fmt", "yuv420p", "-c:a", "flac", source,
+        ]
+    )
+    service = FFmpegService()
+    result = await service.trim_video(
+        source, trimmed, start=trim_start, end=trim_start + 3
+    )
+    assert result.success, result.error
+    sound = Sound(
+        directory="timeline",
+        files=SoundFiles(
+            original=source.name,
+            trimmed_video=trimmed.name,
+            trimmed_audio="unused.ogg",
+        ),
+        timestamps=Timestamps(start=trim_start, end=trim_start + 3),
+        duration=3,
+    )
+    clip = await ensure_clip(sound, tmp_path)
+    assert clip is not None and clip.generated
+
+    for output in (trimmed, clip.path):
+        probe = await service.probe(output)
+        assert probe is not None and probe.duration is not None
+        assert abs(probe.duration - 3) < 0.09
+
+        video = subprocess.run(
+            [FFMPEG, "-v", "error", "-i", str(output), "-an",
+             "-vf", "scale=16:16,format=gray", "-f", "rawvideo", "pipe:1"],
+            capture_output=True, check=True, timeout=30,
+        ).stdout
+        flash_frames = [
+            index // 256
+            for index in range(0, len(video), 256)
+            if sum(video[index:index + 256]) / 256 > 100
+        ]
+        assert flash_frames
+        assert abs(flash_frames[0] / 24 - (4.25 - trim_start)) < 0.09
+        assert abs(flash_frames[-1] / 24 - (5.99 - trim_start)) < 0.09
+
+        audio = subprocess.run(
+            [FFMPEG, "-v", "error", "-i", str(output), "-vn",
+             "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"],
+            capture_output=True, check=True, timeout=30,
+        ).stdout
+        samples = array("f", audio)
+        # 10ms windows avoid encoder ringing at the pulse boundaries.
+        audible_windows = [
+            index / 48000
+            for index in range(0, len(samples) - 480, 480)
+            if sum(value * value for value in samples[index:index + 480]) / 480 > 0.001
+        ]
+        assert audible_windows
+        assert abs(audible_windows[0] - (4.25 - trim_start)) < 0.04
+        assert abs(audible_windows[-1] - (5.99 - trim_start)) < 0.04
+        assert abs(flash_frames[0] / 24 - audible_windows[0]) < 0.09
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    FFMPEG is None or FFPROBE is None,
+    reason="real odd-dimension trim regression requires ffmpeg and ffprobe",
+)
+async def test_accurate_trim_pads_odd_source_dimensions(tmp_path: Path) -> None:
+    assert FFMPEG is not None
+    source = tmp_path / "odd.mkv"
+    output = tmp_path / "trimmed.mkv"
+    _run(
+        [
+            FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i",
+            "testsrc=size=161x91:rate=24:duration=1",
+            "-c:v", "libx264", "-pix_fmt", "yuv444p", source,
+        ]
+    )
+    result = await FFmpegService().trim_video(source, output, start=0.25, end=0.75)
+    assert result.success, result.error
+    video = next(
+        stream for stream in _probe_streams(output)
+        if stream["codec_type"] == "video"
+    )
+    assert (video["width"], video["height"], video["pix_fmt"]) == (162, 92, "yuv420p")

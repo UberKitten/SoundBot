@@ -30,14 +30,14 @@ docker-compose up --build
 uv run pyright                  # Strict Pyright config in pyproject.toml
 ```
 
-No test suite exists. Test manually: web UI at `http://localhost:8080`, Discord commands in a test guild.
+Run backend tests with `uv run pytest`; `tests/conftest.py` isolates state and media paths before importing the app. Real-media regressions require FFmpeg/ffprobe. Frontend tests live under `web/tests/`; follow the package scripts and existing test commands.
 
 ## Development vs Production
 
 The dev instance and Docker production container share the same state file and sounds directory via bind mount. A file lock (`config/state.lock`) prevents multiple instances from running simultaneously.
 
 - **Dev workflow**: Stop Docker first (`docker compose stop`), then run locally. Restart Docker after with `docker compose up -d`.
-- **Deploy**: `git push && docker compose build && docker compose up -d`
+- **Local Compose deployment**: `docker compose build && docker compose up -d`. Production Apps-fleet deployments instead update the immutable SoundBot digest in `homelab-infra` and use its canonical provider-coupled playbook; preserve existing environment and provider state, and roll back by redeploying the previous application pin (not by removing the provider).
 
 ## Architecture
 

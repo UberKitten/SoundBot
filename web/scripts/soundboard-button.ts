@@ -12,10 +12,7 @@ import { copy } from "clipboard";
 import { showContextMenu, showContextMenuAt } from "context-menu";
 import { attachLongPress } from "long-press";
 import { mergeSoundRepresentation } from "sound-live-update";
-import {
-  showClipForSoundClick,
-  stopClipDisplayForSound,
-} from "video-popover";
+import { showClipForSoundClick } from "video-popover";
 
 export class SoundboardButton extends HTMLElement {
   sound?: Sound;
@@ -29,16 +26,7 @@ export class SoundboardButton extends HTMLElement {
   constructor() {
     super();
 
-    this.audioChangeListener = (event) => {
-      this.updateIndicators();
-      if (
-        this.sound &&
-        (event.type === "pause" || event.type === "ended") &&
-        getActiveAudioGroups(this.sound).size === 0
-      ) {
-        stopClipDisplayForSound(this.sound);
-      }
-    };
+    this.audioChangeListener = () => this.updateIndicators();
     addMainAudioChangeListener(this.audioChangeListener);
   }
 
@@ -86,17 +74,14 @@ export class SoundboardButton extends HTMLElement {
 
       if (this.singlePlay && isMainAudioActive(this.sound)) {
         stopMainAudio();
-        stopClipDisplayForSound(this.sound);
         this.updateIndicators();
         return;
       }
 
-      showClipForSoundClick(this.sound);
-      if (this.singlePlay) {
-        playMainAudio(this.sound);
-      } else {
-        playButtonAudio(this.sound, this.audioChangeListener);
-      }
+      const playback = this.singlePlay
+        ? playMainAudio(this.sound)
+        : playButtonAudio(this.sound, this.audioChangeListener);
+      showClipForSoundClick(this.sound, playback);
 
       this.updateIndicators();
 

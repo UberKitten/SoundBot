@@ -20,7 +20,7 @@
  */
 
 import { soundVideoUrl } from "admin-api";
-import { Sound } from "audio";
+import type { AudioPlayback, Sound } from "audio";
 import { isAdmin, onAuthChange } from "auth";
 
 const MIN_WIDTH = 240;
@@ -47,6 +47,9 @@ interface Player {
   video: HTMLVideoElement;
   rect: PlayerRect;
   currentName: string | null;
+  playback: AudioPlayback | undefined;
+  animationId: number | null;
+  playRequested: boolean;
   onWindowResize: () => void;
 }
 
@@ -54,6 +57,7 @@ interface Player {
 let player: Player | null = null;
 let videoControl: HTMLButtonElement | null = null;
 let lastVideoName: string | null = null;
+let lastVideoPlayback: AudioPlayback | undefined;
 let automaticOpeningSuppressed = false;
 
 function ensureVideoControl(): HTMLButtonElement {
@@ -107,6 +111,7 @@ export function initVideoControl(): void {
     if (!allowed) {
       hidePlayer(false);
       lastVideoName = null;
+      lastVideoPlayback = undefined;
       automaticOpeningSuppressed = false;
     }
     updateVideoControl();
@@ -120,55 +125,53 @@ export function initVideoControl(): void {
  * this one viewer muted prevents duplicate clip audio, while retargeting it
  * cannot cancel any overlapping Chaos voices.
  */
-export function showClipForSoundClick(sound: Sound): void {
+export function showClipForSoundClick(
+  sound: Sound,
+  playback: AudioPlayback | undefined
+): void {
   if (!sound.has_video || !isAdmin()) return;
 
   lastVideoName = sound.name;
+  lastVideoPlayback = playback;
   updateVideoControl();
 
   if (player) {
-    loadSound(player, sound.name);
+    loadSound(player, sound.name, playback);
     return;
   }
   if (automaticOpeningSuppressed) return;
 
-  loadSound(ensurePlayer(), sound.name);
-}
-
-/** Reset the displayed clip when its final canonical audio voice stops. */
-export function stopClipDisplayForSound(sound: Sound): void {
-  if (!player || player.currentName !== sound.name) return;
-  player.video.pause();
-  try {
-    player.video.currentTime = 0;
-  } catch {
-    /* not seekable yet */
-  }
+  loadSound(ensurePlayer(), sound.name, playback);
 }
 
 function showLastVideo(): void {
   if (!lastVideoName || !isAdmin()) return;
   automaticOpeningSuppressed = false;
-  loadSound(ensurePlayer(), lastVideoName);
+  loadSound(ensurePlayer(), lastVideoName, lastVideoPlayback);
 }
 
 /* ---- loading / retargeting ---- */
 
-function loadSound(p: Player, name: string): void {
+function loadSound(
+  p: Player,
+  name: string,
+  playback: AudioPlayback | undefined
+): void {
+  p.playback = playback;
+  p.playRequested = false;
+  p.video.pause();
+  try {
+    p.video.currentTime = 0;
+  } catch {
+    /* not seekable yet */
+  }
   if (
     p.currentName === name &&
     p.video.getAttribute("src") &&
     !p.wrap.classList.contains("video-error")
   ) {
-    // Same sound again (and it loaded fine): restart rather than re-fetch.
-    try {
-      p.video.currentTime = 0;
-    } catch {
-      /* not seekable yet — play() below still applies */
-    }
-    p.video.play().catch(() => {
-      /* autoplay guards — user can hit play via controls */
-    });
+    // Restart the selected request's clock, not an older overlapping voice.
+    syncPlayback(p);
     return;
   }
 
@@ -184,9 +187,51 @@ function loadSound(p: Player, name: string): void {
   p.video.pause();
   p.video.src = soundVideoUrl(name);
   p.video.load();
-  p.video.play().catch(() => {
-    /* autoplay guards — user can hit play via controls */
-  });
+  syncPlayback(p);
+}
+
+/** Keep this muted visual stream on the exact selected canonical audio clock. */
+function syncPlayback(p: Player): void {
+  if (p.animationId !== null) cancelAnimationFrame(p.animationId);
+  p.animationId = null;
+  const state = p.playback?.state ?? "stopped";
+  if (state !== "playing") {
+    p.video.pause();
+    p.playRequested = false;
+  }
+
+  if (state === "stopped") {
+    try {
+      if (p.video.currentTime !== 0) p.video.currentTime = 0;
+    } catch {
+      /* not seekable yet */
+    }
+    return;
+  }
+
+  if (p.video.readyState >= 3) {
+    const elapsed = p.playback?.currentTime ?? 0;
+    const target = Number.isFinite(p.video.duration)
+      ? Math.min(elapsed, p.video.duration)
+      : elapsed;
+    // Re-seek after buffering or readiness delays; don't seek every frame.
+    if (
+      (p.video.paused && p.video.currentTime !== target) ||
+      Math.abs(p.video.currentTime - target) > 0.1
+    ) {
+      p.video.currentTime = target;
+    }
+    if (
+      state === "playing" && p.video.paused && !p.playRequested &&
+      target < p.video.duration
+    ) {
+      p.playRequested = true;
+      p.video.play().catch(() => {
+        /* autoplay guards — leave the muted viewer paused */
+      });
+    }
+  }
+  p.animationId = requestAnimationFrame(() => syncPlayback(p));
 }
 
 /* ---- construction ---- */
@@ -225,7 +270,7 @@ function ensurePlayer(): Player {
   const video = document.createElement("video");
   video.className = "video-player-video";
   video.controls = true;
-  video.autoplay = true;
+  video.autoplay = false;
   video.defaultMuted = true;
   video.muted = true;
   video.playsInline = true;
@@ -253,6 +298,9 @@ function ensurePlayer(): Player {
     video,
     rect: { left: 0, top: 0, width: DEFAULT_WIDTH, height: MIN_HEIGHT },
     currentName: null,
+    playback: undefined,
+    animationId: null,
+    playRequested: false,
     onWindowResize: () => {
       p.rect = clampRect(p.rect);
       applyRect(p);
@@ -275,6 +323,8 @@ function ensurePlayer(): Player {
     if (!video.getAttribute("src")) return;
     wrap.classList.remove("video-error");
     wrap.classList.add("video-ready");
+    p.playRequested = false;
+    syncPlayback(p);
   });
   video.addEventListener("error", () => {
     // Ignore the synthetic error from unloading src on close, and stale
@@ -328,6 +378,7 @@ function hidePlayer(suppressAutomaticOpening: boolean): void {
   }
   const p = player;
   player = null;
+  if (p.animationId !== null) cancelAnimationFrame(p.animationId);
   window.removeEventListener("resize", p.onWindowResize);
   // Pause + unload the muted visual stream while hidden.
   try {

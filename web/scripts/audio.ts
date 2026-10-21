@@ -64,9 +64,16 @@ export interface AudioGroup {
   gain: GainNode;
 }
 
+/** Clock for one accepted play, never another overlapping voice of the sound. */
+export interface AudioPlayback {
+  readonly state: "pending" | "playing" | "stopped";
+  readonly currentTime: number;
+}
+
 interface BaseVoice extends AudioGroup {
   sound: Sound;
   stopped: boolean;
+  started: boolean;
 }
 
 interface BufferVoice extends BaseVoice {
@@ -92,6 +99,7 @@ interface MainRequest {
   cacheKey: string;
   contextReady: Promise<void>;
   mediaStarted: boolean;
+  voice: Voice | null;
 }
 
 interface ButtonRequest {
@@ -101,6 +109,7 @@ interface ButtonRequest {
   contextReady: Promise<void>;
   mediaStarted: boolean;
   cancelled: boolean;
+  voice: Voice | null;
 }
 
 interface DecodedAudio {
@@ -401,6 +410,7 @@ function createBufferVoice(
     startedAt: ctx.currentTime,
     duration: buffer.duration,
     stopped: false,
+    started: false,
   };
 }
 
@@ -427,6 +437,7 @@ function createMediaVoice(
     sound,
     media,
     stopped: false,
+    started: false,
   };
 }
 
@@ -483,6 +494,7 @@ async function startMediaButtonAudio(request: ButtonRequest): Promise<void> {
   try {
     voice = createMediaVoice(request.sound, request.cacheKey, request.element);
     pendingButtonAudio.delete(request);
+    request.voice = voice;
     addButtonVoice(voice);
     voice.media.onended = () => finishButtonVoice(voice, "ended");
     voice.media.onerror = () => finishButtonVoice(voice, "pause");
@@ -501,6 +513,7 @@ async function startMediaButtonAudio(request: ButtonRequest): Promise<void> {
   }
 
   if (!request.cancelled && !voice.stopped) {
+    voice.started = true;
     dispatchPlaybackEvent(voice.element, "play");
   }
 }
@@ -536,6 +549,8 @@ async function startButtonAudio(request: ButtonRequest): Promise<void> {
     addButtonVoice(voice);
     voice.source.onended = () => finishButtonVoice(voice, "ended");
     voice.source.start();
+    voice.started = true;
+    request.voice = voice;
   } catch {
     if (typeof voice! !== "undefined") {
       removeButtonVoice(voice);
@@ -548,7 +563,10 @@ async function startButtonAudio(request: ButtonRequest): Promise<void> {
   dispatchPlaybackEvent(voice.element, "play");
 }
 
-export function playButtonAudio(sound: Sound, updateCb: ChangeListener) {
+export function playButtonAudio(
+  sound: Sound,
+  updateCb: ChangeListener
+): AudioPlayback | undefined {
   const soundPath = getSoundPath(sound);
   if (!soundPath) return;
 
@@ -559,6 +577,7 @@ export function playButtonAudio(sound: Sound, updateCb: ChangeListener) {
     contextReady: beginAudioContextUnlock(),
     mediaStarted: false,
     cancelled: false,
+    voice: null,
   };
   attachPlaybackChangeListener(request.element, updateCb);
   pendingButtonAudio.add(request);
@@ -568,6 +587,11 @@ export function playButtonAudio(sound: Sound, updateCb: ChangeListener) {
   } else {
     void startButtonAudio(request);
   }
+  return playbackClock(
+    request,
+    () => !request.cancelled &&
+      (pendingButtonAudio.has(request) || (!!request.voice && !request.voice.stopped))
+  );
 }
 
 function stopMainVoice(voice: Voice, eventType: "pause" | "ended"): void {
@@ -612,6 +636,7 @@ async function startMediaMainAudio(request: MainRequest): Promise<void> {
   try {
     voice = createMediaVoice(request.sound, request.cacheKey, mainAudioEvents);
     mainVoice = voice;
+    request.voice = voice;
     mainPending = null;
     mainSound = request.sound;
     voice.media.onended = () => stopMainVoice(voice, "ended");
@@ -632,6 +657,7 @@ async function startMediaMainAudio(request: MainRequest): Promise<void> {
     mainVoice === voice &&
     !voice.stopped
   ) {
+    voice.started = true;
     dispatchPlaybackEvent(mainAudioEvents, "play");
   }
 }
@@ -667,6 +693,8 @@ async function startMainAudio(request: MainRequest): Promise<void> {
     mainSound = request.sound;
     voice.source.onended = () => stopMainVoice(voice, "ended");
     voice.source.start();
+    voice.started = true;
+    request.voice = voice;
   } catch {
     if (typeof voice! !== "undefined") {
       if (mainVoice === voice) mainVoice = null;
@@ -683,7 +711,7 @@ async function startMainAudio(request: MainRequest): Promise<void> {
   dispatchPlaybackEvent(mainAudioEvents, "play");
 }
 
-export function playMainAudio(sound: Sound) {
+export function playMainAudio(sound: Sound): AudioPlayback | undefined {
   const soundPath = getSoundPath(sound);
   if (!soundPath) return;
 
@@ -695,6 +723,7 @@ export function playMainAudio(sound: Sound) {
     cacheKey: soundPath,
     contextReady: beginAudioContextUnlock(),
     mediaStarted: false,
+    voice: null,
   };
   mainPending = request;
   mainSound = sound;
@@ -704,6 +733,36 @@ export function playMainAudio(sound: Sound) {
   } else {
     void startMainAudio(request);
   }
+  return playbackClock(
+    request,
+    () => mainGeneration === request.generation &&
+      (mainPending === request || (!!request.voice && !request.voice.stopped))
+  );
+}
+
+function playbackClock(
+  request: MainRequest | ButtonRequest,
+  isActive: () => boolean
+): AudioPlayback {
+  return {
+    get state() {
+      if (!isActive()) return "stopped";
+      const voice = request.voice;
+      if (!voice?.started || audioCtx?.state !== "running") return "pending";
+      if (
+        voice.engine === "media-element" &&
+        (voice.media.paused || voice.media.readyState < 3)
+      ) return "pending";
+      return "playing";
+    },
+    get currentTime() {
+      const voice = request.voice;
+      if (!voice || voice.stopped || !voice.started) return 0;
+      return voice.engine === "media-element"
+        ? voice.media.currentTime
+        : Math.max(0, Math.min(voice.duration, getAudioContext().currentTime - voice.startedAt));
+    },
+  };
 }
 
 export function getActiveButtonAudioGroups(

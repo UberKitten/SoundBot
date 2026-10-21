@@ -124,6 +124,27 @@ uv run python -m soundbot
 
 > **Note:** A file lock prevents multiple instances from running simultaneously. If using Docker, stop it first with `docker compose stop`.
 
+### Media timing
+
+Video cuts decode the original at the saved start/end timestamps before
+encoding the intermediate MKV. Do not use stream-copy seeking for these cuts:
+it retains preceding-keyframe frames and shifts that preroll into the clip.
+Browser MP4s consume the accurately cut MKV (or apply the same cut directly to
+the original when no intermediate exists). The muted web viewer follows the
+selected sound's actual audio-playback clock, not the button-click time.
+
+For an existing affected library, repair only demonstrated bad derivatives
+from retained originals and saved timestamps. Preserve exact MKV/MP4 preimages
+for operator-assisted rollback, generate and inspect candidates before atomic
+replacement, and do not rewrite sound metadata or normalized OGGs just to fix
+video. Deployments on the Apps fleet use the canonical `homelab-infra`
+SoundBot digest pin and provider-coupled playbook, not this checkout's local
+Compose example.
+
+Run the isolated backend suite with `uv run pytest`. Its fixtures redirect
+state and sound paths before imports; real FFmpeg timeline regressions require
+`ffmpeg` and `ffprobe` on `PATH`.
+
 ### CLI tools
 
 The bot ships a small CLI for offline maintenance and ingest. Stop the running

@@ -189,6 +189,7 @@ async function loadAudioModule(options = {}) {
       this.paused = true;
       this.currentTime = 0;
       this.duration = options.mediaDuration ?? 10;
+      this.readyState = 4;
       this.onended = null;
       this.onerror = null;
       mediaElements.push(this);
@@ -728,3 +729,113 @@ test("a versioned URL is the decode-cache identity", async () => {
   assert.match(scenario.audioFetches[0], /[?&]v=\d+/);
   assert.match(scenario.audioFetches[1], /[?&]v=\d+/);
 });
+
+test("the selected playback clock waits for decode and context unlock, not click time", async () => {
+  const decode = deferred();
+  const unlock = deferred();
+  const { audio, scenario, contexts } = await loadAudioModule({
+    contextState: "suspended",
+    decodeAudio: () => decode.promise,
+    resumeAudio: async (context) => {
+      await unlock.promise;
+      context.state = "running";
+    },
+  });
+  const playback = audio.playMainAudio(sound("delayed-clock"));
+  assert.equal(playback.state, "pending");
+  scenario.currentTime = 20;
+  decode.resolve(audioBuffer(1, 3));
+  await settle();
+  assert.equal(playback.state, "pending");
+  assert.equal(playback.currentTime, 0);
+  assert.equal(scenario.sources.length, 0);
+  unlock.resolve();
+  await settle();
+  assert.equal(playback.state, "playing");
+  assert.equal(playback.currentTime, 0);
+  scenario.currentTime = 21.25;
+  assert.equal(playback.currentTime, 1.25);
+  contexts[0].state = "suspended";
+  assert.equal(playback.state, "pending", "a suspended audio context cannot drive video");
+  contexts[0].state = "running";
+  scenario.sources[0].finish();
+  assert.equal(playback.state, "stopped");
+  assert.equal(playback.currentTime, 0);
+});
+
+test("playback clocks retain exact Chaos voice identity through retriggers and completion", async () => {
+  const { audio, scenario } = await loadAudioModule();
+  const selected = sound("same-clip");
+  const older = audio.playButtonAudio(selected, () => {});
+  await settle();
+  scenario.currentTime = 2;
+  const latest = audio.playButtonAudio(selected, () => {});
+  await settle();
+  scenario.currentTime = 2.5;
+  assert.equal(older.currentTime, 2.5);
+  assert.equal(latest.currentTime, 0.5);
+  scenario.sources[1].finish();
+  assert.equal(latest.state, "stopped", "selected voice stops even while older audio overlaps");
+  assert.equal(older.state, "playing");
+  assert.equal(audio.getActiveButtonAudioGroups(selected).get(selected).length, 1);
+  audio.stopAllButtonAudio();
+  assert.equal(older.state, "stopped");
+});
+
+test("a switched or cancelled pending Single clock never adopts a newer voice", async () => {
+  const decode = deferred();
+  const { audio, scenario } = await loadAudioModule({
+    decodeAudio: () => decode.promise,
+  });
+  const old = audio.playMainAudio(sound("old-clock"));
+  const latest = audio.playMainAudio(sound("new-clock"));
+  assert.equal(old.state, "stopped");
+  assert.equal(latest.state, "pending");
+  decode.resolve(audioBuffer());
+  await settle();
+  assert.equal(old.state, "stopped");
+  assert.equal(latest.state, "playing");
+  assert.equal(scenario.sources.length, 1);
+  audio.stopMainAudio();
+  assert.equal(latest.state, "stopped");
+});
+
+for (const engine of ["iOS media", "decode fallback"]) {
+  test(`${engine} clock waits for actual play and follows media time through buffering`, async () => {
+    const play = deferred();
+    const options = {
+      playMedia: () => play.promise,
+      ...(engine === "iOS media"
+        ? { userAgent: "iPhone AppleWebKit", platform: "iPhone", maxTouchPoints: 5 }
+        : { decodeAudio: async () => { throw new Error("unsupported codec"); } }),
+    };
+    const { audio, scenario } = await loadAudioModule(options);
+    const main = audio.playMainAudio(sound("media-main-clock"));
+    const chaos = audio.playButtonAudio(sound("media-chaos-clock"), () => {});
+    await settle();
+    assert.equal(main.state, "pending");
+    assert.equal(chaos.state, "pending");
+    scenario.currentTime = 100;
+    scenario.mediaElements[0].currentTime = 0.75;
+    scenario.mediaElements[1].currentTime = 0.25;
+    play.resolve();
+    await settle();
+    assert.equal(main.state, "playing");
+    assert.equal(chaos.state, "playing");
+    assert.equal(main.currentTime, 0.75, "media time, never AudioContext elapsed, owns this clock");
+    assert.equal(chaos.currentTime, 0.25);
+    scenario.mediaElements[0].readyState = 2;
+    assert.equal(main.state, "pending", "canonical buffering pauses the visual");
+    assert.equal(chaos.state, "playing");
+    scenario.mediaElements[0].readyState = 4;
+    scenario.mediaElements[0].currentTime = 1.5;
+    assert.equal(main.state, "playing");
+    assert.equal(main.currentTime, 1.5);
+    scenario.mediaElements[1].fail();
+    assert.equal(chaos.state, "stopped");
+    assert.equal(main.state, "playing");
+    audio.stopMainAudio();
+    assert.equal(main.state, "stopped");
+    assert.equal(scenario.counters.length, 2);
+  });
+}

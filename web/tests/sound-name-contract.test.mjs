@@ -81,7 +81,6 @@ const stubs = new Map([
     "video-popover",
     moduleUrl(`
       export function showClipForSoundClick() {}
-      export function stopClipDisplayForSound() {}
     `),
   ],
   [
