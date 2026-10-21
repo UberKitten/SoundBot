@@ -623,3 +623,28 @@ async def test_accurate_trim_pads_odd_source_dimensions(tmp_path: Path) -> None:
         if stream["codec_type"] == "video"
     )
     assert (video["width"], video["height"], video["pix_fmt"]) == (162, 92, "yuv420p")
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    FFMPEG is None or FFPROBE is None,
+    reason="real 4K trim regression requires ffmpeg and ffprobe",
+)
+async def test_accurate_trim_uses_browser_width_for_4k_intermediate(tmp_path: Path) -> None:
+    assert FFMPEG is not None
+    source = tmp_path / "4k.mkv"
+    output = tmp_path / "trimmed.mkv"
+    _run(
+        [
+            FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i",
+            "color=size=3840x2160:rate=24:duration=0.5",
+            "-c:v", "libx264", "-preset", "ultrafast", "-threads", "2", source,
+        ]
+    )
+    result = await FFmpegService().trim_video(source, output, start=0.1, end=0.4)
+    assert result.success, result.error
+    video = next(
+        stream for stream in _probe_streams(output)
+        if stream["codec_type"] == "video"
+    )
+    assert (video["width"], video["height"], video["pix_fmt"]) == (1280, 720, "yuv420p")

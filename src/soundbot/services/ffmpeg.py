@@ -304,8 +304,9 @@ class FFmpegService:
 
         Stream copying an input seek retains video from the preceding keyframe.
         Shifting those packets to zero then makes that preroll part of the
-        browser clip. Encode the cut instead; FLAC keeps intermediate audio
-        lossless until the browser MP4's AAC encode.
+        browser clip. Encode the cut at the existing browser width limit, rather
+        than retaining a full-resolution intermediate. FLAC keeps intermediate
+        audio lossless until the browser MP4's AAC encode.
         """
         try:
             args = ["ffmpeg", "-y", *_trim_input_args(input_file, start, end)]
@@ -323,7 +324,7 @@ class FFmpegService:
                 "-crf",
                 "18",
                 "-vf",
-                "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                "scale='min(1280,iw)':-2,pad=ceil(iw/2)*2:ceil(ih/2)*2",
                 "-pix_fmt",
                 "yuv420p",
                 "-profile:v",

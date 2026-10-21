@@ -127,7 +127,9 @@ uv run python -m soundbot
 ### Media timing
 
 Video cuts decode the original at the saved start/end timestamps before
-encoding the intermediate MKV. Do not use stream-copy seeking for these cuts:
+encoding the intermediate MKV at the existing browser width limit (1280px),
+with even dimensions for H.264. This avoids a needless full-resolution
+intermediate encode for 4K sources. Do not use stream-copy seeking for cuts:
 it retains preceding-keyframe frames and shifts that preroll into the clip.
 Browser MP4s consume the accurately cut MKV (or apply the same cut directly to
 the original when no intermediate exists). The muted web viewer follows the
