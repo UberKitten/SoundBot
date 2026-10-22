@@ -86,6 +86,29 @@ docker-compose up --build
 | `YTDLP_POT_PROVIDER_URL` | Internal bgutil POT provider URL (default `http://192.168.0.10:4416`) |
 | `YTDLP_COOKIES_FILE` | Optional cookies file used for one retry after an anonymous yt-dlp failure; in Docker, bind the client-local file read-only (the example path is `/run/secrets/yt-dlp-cookies.txt`) |
 
+### Shared YouTube provider maintenance
+
+The container pairs `bgutil-ytdlp-pot-provider==2.0.2` with the shared HTTP
+provider `2.0.2`, and builds with stable yt-dlp `2026.10.21` and Node `24.22.1`.
+Keep `youtube:player_client=mweb` and
+`youtubepot-bgutilhttp:base_url=http://192.168.0.10:4416` unchanged.
+The existing uv-owned runtime yt-dlp update path remains in place.
+
+Coordinate the provider and every client plugin before deployment through the
+canonical provider-coupled `homelab-infra` playbook. Check plugin discovery,
+then exercise SoundBot's actual downloader arguments with a small public
+simulation/download in isolated temporary storage, without starting Discord or
+writing sound/state data. Provider `/ping` alone is not a download proof.
+Do not provision or inspect cookies for this check, and do not automatically
+roll back to the provider's vulnerable `1.3.2` release.
+
+The development lock uses certifi `2026.10.19` for the
+[emSign CA incident](https://github.com/certifi/python-certifi/security/advisories/GHSA-6q48-6c7w-9gw2).
+Docker's existing uv pip installation does not consume that lock, so this is
+not proof of the runtime CA selection. Check the candidate's native Python
+default and yt-dlp-selected trust stores for absence of `emSign ECC Root CA - G3`,
+without adding an SSL override or changing the global trust configuration.
+
 ## Project Structure
 
 ```
