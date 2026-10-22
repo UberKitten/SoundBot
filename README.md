@@ -109,6 +109,11 @@ not proof of the runtime CA selection. Check the candidate's native Python
 default and yt-dlp-selected trust stores for absence of `emSign ECC Root CA - G3`,
 without adding an SSL override or changing the global trust configuration.
 
+The targeted frontend lock update does not resolve all Gulp 4/CLI 2 build-chain
+advisories. This npm dependency tree runs in the build stage; the runtime image
+copies generated assets, not `node_modules`. The lock update alone does not
+establish that the application or its build chain is fully patched.
+
 ## Project Structure
 
 ```
