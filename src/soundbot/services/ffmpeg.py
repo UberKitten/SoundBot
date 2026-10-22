@@ -309,7 +309,12 @@ class FFmpegService:
         audio lossless until the browser MP4's AAC encode.
         """
         try:
-            args = ["ffmpeg", "-y", *_trim_input_args(input_file, start, end)]
+            # Auto decoder/encoder threading retains too many 4K/portrait frames
+            # for the production guest. Bound both sides of the accurate cut.
+            args = [
+                "ffmpeg", "-y", "-threads:v", "2",
+                *_trim_input_args(input_file, start, end),
+            ]
         except ValueError as e:
             logger.error(f"Invalid video trim timestamps: {e}")
             return ProcessResult(success=False, error=str(e))
@@ -319,6 +324,8 @@ class FFmpegService:
             [
                 "-c:v",
                 "libx264",
+                "-threads:v",
+                "2",
                 "-preset",
                 "veryfast",
                 "-crf",

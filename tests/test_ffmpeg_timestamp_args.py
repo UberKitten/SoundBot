@@ -33,6 +33,27 @@ def argument_after(args: tuple[str, ...], flag: str) -> str:
     return args[args.index(flag) + 1]
 
 
+@pytest.mark.asyncio
+async def test_accurate_video_trim_bounds_decoder_and_encoder_threads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    async def create_process(*args: str, **_kwargs: Any) -> SuccessfulProcess:
+        calls.append(args)
+        return SuccessfulProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
+    result = await FFmpegService().trim_video(
+        tmp_path / "4k.mkv", tmp_path / "trimmed.mkv", start=1, end=3
+    )
+    assert result.success
+    args = calls[0]
+    input_index = args.index("-i")
+    assert argument_after(args[:input_index], "-threads:v") == "2"
+    assert argument_after(args[input_index + 2:], "-threads:v") == "2"
+
+
 @pytest.mark.parametrize("boundary", [1.0408340855860843e-16, -1.0408340855860843e-16])
 def test_trim_request_models_canonicalize_near_zero_boundaries(boundary: float) -> None:
     add = AddSoundBody(
