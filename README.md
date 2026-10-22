@@ -180,30 +180,71 @@ state and sound paths before imports; real FFmpeg timeline regressions require
 
 ### CLI tools
 
-The bot ships a small CLI for offline maintenance and ingest. Stop the running
-bot first (the state lock prevents concurrent instances):
+The native CLI uses the same sound services as Discord and the web UI, under
+the existing exclusive state lock. It is an **offline administrative tool**:
+stop the bot before running commands against its state, including `info` and
+`list`. It uses the trusted local/container account and existing configuration,
+not a Discord OAuth cookie. Never bypass the state lock or run a second state
+owner against the live library. `--help` does not load settings or take the lock.
+
+From a configured development checkout:
 
 ```bash
-docker compose stop  # if running in docker
-uv run python -m soundbot.cli <subcommand>
-docker compose up -d
+uv run soundbot-cli --help
+# Equivalent module entry point:
+uv run python -m soundbot.cli --help
 ```
 
-Subcommands:
+For production, use the target's canonical operator procedure and accepted
+image, existing environment, user, binds and network. The container interpreter
+is `/app/.venv/bin/python`; a stopped container cannot accept `docker exec`.
+Run only one offline command at a time in the coordinated bot-only window,
+and restart the bot only after that process exits and releases the lock.
+Do not start Discord or a second web server just to run the CLI.
+
+Management commands print JSON and exit nonzero on failure. Names and aliases
+resolve exactly; partial matches never choose a target. `add` and `import-file`
+add **full-length** sounds without overwriting existing entries:
 
 ```bash
-# Clip a sound from a local video file. Source is NOT copied — the absolute
-# path is stored in state, so future trim/regenerate operations re-read from
-# the original. Timestamps accept HH:MM:SS, MM:SS, or seconds.
-uv run python -m soundbot.cli clip <video> <name> <start> <end> [--volume N] [--overwrite]
+soundbot-cli add friday20221216 'https://www.youtube.com/watch?v=VIDEO_ID'
+# Or prepare/download once elsewhere, then COPY that full source into retained
+# SoundBot storage. The input remains untouched and provenance is preserved.
+soundbot-cli import-file friday20221216 /input/report.mp4 \
+  --source-url 'https://www.youtube.com/watch?v=VIDEO_ID' \
+  --source-title 'Weather Report 12/16/22'
 
-# Re-normalize all (or one) sound's audio from its original. Use after
-# changing audio_target_lufs.
-uv run python -m soundbot.cli regenerate-audio [--sound NAME] [--dry-run]
+# Inspect the saved full-length sound before cutting its retained original.
+# Trim does not download again. Timestamps accept HH:MM:SS, MM:SS or seconds.
+soundbot-cli info friday20221216
+soundbot-cli trim friday20221216 8.9 17.7
+soundbot-cli list
 
-# Find sounds whose audio file is missing on disk.
-uv run python -m soundbot.cli check-sounds [--remove]
+soundbot-cli group create lynchfridays
+soundbot-cli group add lynchfridays friday20221216
+soundbot-cli group list lynchfridays
+soundbot-cli group list
+soundbot-cli group remove lynchfridays friday20221216
+soundbot-cli group delete lynchfridays
+
+# Deletion permanently removes the retained original and derivatives.
+# Remove memberships first, retain recovery copies, and name only owned entries.
+soundbot-cli delete friday20221216 --yes
+
+# Existing maintenance tools:
+soundbot-cli clip VIDEO NAME START END [--volume N] [--overwrite]
+soundbot-cli regenerate-audio [--sound NAME] [--dry-run]
+soundbot-cli check-sounds [--remove]
+soundbot-cli backfill-durations [--state-file PATH] [--sounds-folder PATH] [--write]
 ```
+
+Unlike `import-file`, the legacy `clip` command does **not** copy its source:
+it retains the absolute external path. Do not use it for full-length-first
+staging, and do not remove its external source while the sound still uses it.
+Inspect `list`/`info` and group membership before resuming a partial import;
+a failed duplicate add is not permission to overwrite or download again.
+Successful processing alone is not a playback check: verify actual served
+audio/video, clip boundaries and group membership after restarting the bot.
 
 `clip` requires the source to be reachable from wherever the bot runs. For
 the Docker container, that means bind-mounting media shares (e.g.

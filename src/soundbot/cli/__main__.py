@@ -81,6 +81,10 @@ def main():
         help="Overwrite an existing sound with the same name",
     )
 
+    from soundbot.cli.manage import register_commands
+
+    register_commands(subparsers)
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -138,6 +142,10 @@ def main():
             )
         )
         sys.exit(exit_code)
+    else:
+        from soundbot.cli.manage import run
+
+        sys.exit(asyncio.run(run(args)))
 
 
 if __name__ == "__main__":
