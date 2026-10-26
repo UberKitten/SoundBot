@@ -31,6 +31,7 @@ import {
   setError,
   setInfo,
 } from "utils";
+import { showClipForSoundClick } from "video-popover";
 import { GroupUpdateEvent, SoundUpdateEvent, onGroupUpdate, onSoundUpdate } from "websocket";
 
 /** A sortable item: either a sound or a group. */
@@ -679,6 +680,7 @@ export class SoundboardApp extends HTMLElement {
       const sound = this.sounds.find((s) => s.name === member);
       if (sound) {
         playback = playMainAudio(sound);
+        showClipForSoundClick(sound, playback);
         if (playback) button.dataset.playingSound = sound.name;
         updateProgress();
         // Record group play

@@ -6,6 +6,15 @@ import ts from "typescript";
 
 const moduleUrl = (source) => `data:text/javascript,${encodeURIComponent(source)}`;
 const stubs = new Map([
+  ["admin-api", moduleUrl(`
+    export function soundVideoUrl(name) {
+      return "/api/admin/sounds/" + encodeURIComponent(name) + "/video";
+    }
+  `)],
+  ["auth", moduleUrl(`
+    export function isAdmin() { return globalThis.groupVideoAdmin; }
+    export function onAuthChange(callback) { globalThis.groupVideoAuth = callback; }
+  `)],
   ["clipboard", moduleUrl("export function copy() {}")],
   ["config", moduleUrl(`
     export const GROUPS_API_PATH = "/api/groups";
@@ -50,10 +59,12 @@ const stubs = new Map([
   `)],
 ]);
 let audioModuleUrl;
+let videoModuleUrl;
 let moduleSequence = 0;
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier === "audio") return { url: audioModuleUrl, shortCircuit: true };
+    if (specifier === "video-popover") return { url: videoModuleUrl, shortCircuit: true };
     if (specifier === "audio-platform") {
       return {
         url: new URL("../scripts/audio-platform.ts", import.meta.url).href,
@@ -121,9 +132,18 @@ class FakeElement extends EventTarget {
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   removeAttribute(name) { this.attributes.delete(name); }
   querySelector(selector) {
-    return this.children.find((child) => child.classList.contains(selector.slice(1))) ?? null;
+    for (const child of this.children) {
+      const matches = selector.startsWith(".")
+        ? child.classList.contains(selector.slice(1))
+        : selector.startsWith("#") ? child.id === selector.slice(1) : child.tagName === selector;
+      if (matches) return child;
+      const nested = child.querySelector(selector);
+      if (nested) return nested;
+    }
+    return null;
   }
   appendChild(child) { child.parentElement = this; this.children.push(child); return child; }
+  contains(child) { return this === child || this.children.some((entry) => entry.contains(child)); }
   insertBefore(child, before) {
     child.parentElement = this;
     this.children.splice(this.children.indexOf(before), 0, child);
@@ -163,7 +183,7 @@ async function settle() {
 }
 
 async function fixture(t, options = {}) {
-  const scenario = { posts: [], fetches: [], sources: [], media: [], frames: new Map(), changes: [], time: 0 };
+  const scenario = { posts: [], fetches: [], sources: [], media: [], videos: [], frames: new Map(), changes: [], time: 0 };
   globalThis.scheduleGroupChange = options.deferChanges
     ? (task) => scenario.changes.push(task)
     : (task) => queueMicrotask(task);
@@ -196,6 +216,22 @@ async function fixture(t, options = {}) {
     finish() { this.paused = true; this.onended?.(new Event("ended")); }
     fail() { this.paused = true; this.onerror?.(new Event("error")); }
   }
+  class FakeVideo extends FakeElement {
+    constructor() {
+      super("video");
+      this.paused = true;
+      this.currentTime = 0;
+      this.duration = 10;
+      this.readyState = 0;
+      scenario.videos.push(this);
+    }
+    set src(value) { this.setAttribute("src", value); }
+    get src() { return this.getAttribute("src") ?? ""; }
+    play() { this.paused = false; return Promise.resolve(); }
+    pause() { this.paused = true; }
+    load() { this.readyState = 0; this.currentTime = 0; }
+    canplay() { this.readyState = 4; this.dispatchEvent(new Event("canplay")); }
+  }
   class FakeAudioContext {
     state = "running";
     destination = {};
@@ -214,14 +250,22 @@ async function fixture(t, options = {}) {
   globalThis.document = {
     grid: new FakeElement(),
     body: new FakeElement("body"),
-    querySelector() { return null; },
-    createElement(tag) { return tag === "audio" ? new FakeMedia() : new FakeElement(tag); },
+    querySelector(selector) { return this.body.querySelector(selector); },
+    createElement(tag) {
+      if (tag === "audio") return new FakeMedia();
+      if (tag === "video") return new FakeVideo();
+      return new FakeElement(tag);
+    },
     addEventListener: documentEvents.addEventListener.bind(documentEvents),
     removeEventListener: documentEvents.removeEventListener.bind(documentEvents),
   };
   globalThis.localStorage = { getItem() { return null; }, setItem() {} };
   globalThis.location = { origin: "https://soundbot.test" };
-  globalThis.window = { location: { href: "https://soundbot.test/", search: "" } };
+  globalThis.window = Object.assign(new EventTarget(), {
+    location: { href: "https://soundbot.test/", search: "" }, innerWidth: 1200, innerHeight: 800,
+  });
+  globalThis.sessionStorage = { getItem() { return null; }, setItem() {} };
+  globalThis.groupVideoAdmin = options.admin ?? true;
   globalThis.history = { replaceState() {} };
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
@@ -245,13 +289,20 @@ async function fixture(t, options = {}) {
   };
   const sequence = ++moduleSequence;
   audioModuleUrl = new URL(`../scripts/audio.ts?group-test=${sequence}`, import.meta.url).href;
+  videoModuleUrl = new URL(`../scripts/video-popover.ts?group-test=${sequence}`, import.meta.url).href;
+  const video = await import(videoModuleUrl);
   const audio = await import(audioModuleUrl);
   const { SoundboardApp } = await import(
     new URL(`../scripts/soundboard-app.ts?group-test=${sequence}`, import.meta.url).href
   );
   const app = new SoundboardApp();
-  t.after(async () => { audio.stopMainAudio(); await settle(); scenario.frames.clear(); });
-  return { app, audio, scenario };
+  t.after(async () => {
+    audio.stopMainAudio();
+    document.body.querySelector(".video-player-close")?.click();
+    await settle();
+    scenario.frames.clear();
+  });
+  return { app, audio, video, scenario };
 }
 
 function assertIdle(button) {
@@ -620,3 +671,121 @@ for (const engine of ["buffer", "fallback", "media"]) {
     assert.equal(scenario.frames.size, 0);
   });
 }
+
+test("group clips open, wait for canonical audio and retarget the same muted viewer", async (t) => {
+  const pending = deferred();
+  let decodes = 0;
+  const { app, scenario } = await fixture(t, {
+    decodeAudio: () => ++decodes === 1 ? pending.promise : Promise.resolve(decodedBuffer()),
+  });
+  const { first, second, button } = seedGroup(app);
+  first.has_video = second.has_video = true;
+  button.click();
+  const visual = scenario.videos[0];
+  assert.ok(visual, "the real group handler opens the real viewer");
+  assert.match(visual.src, /\/first\/video$/);
+  assert.equal(visual.muted, true);
+  visual.canplay();
+  frame(scenario);
+  assert.equal(visual.paused, true, "video cannot run ahead of pending audio");
+  pending.resolve(decodedBuffer());
+  await settle();
+  scenario.time = 2.25;
+  frame(scenario);
+  assert.equal(visual.currentTime, 2.25);
+  assert.equal(visual.paused, false);
+  button.click();
+  frame(scenario);
+  assert.equal(visual.paused, true);
+  assert.equal(visual.currentTime, 0);
+  assert.equal(scenario.posts.length, 2, "stop does not count or select another member");
+  button.click();
+  await settle();
+  assert.equal(scenario.videos.length, 1, "the viewer is retargeted, not duplicated");
+  assert.match(visual.src, /\/second\/video$/);
+  scenario.time = 3.5;
+  visual.canplay();
+  assert.equal(visual.currentTime, 1.25, "retarget follows the new request, not page or old audio time");
+  assert.equal(visual.paused, false);
+  assert.deepEqual(scenario.posts, [
+    "/api/sounds/first/play", "/api/groups/mix/play",
+    "/api/sounds/second/play", "/api/groups/mix/play",
+  ]);
+});
+
+for (const action of ["hide", "close"]) {
+  test(`group clip ${action} suppresses reopening but Show rejoins the newest member`, async (t) => {
+    const { app, video, scenario } = await fixture(t);
+    const { first, second, button } = seedGroup(app);
+    first.has_video = second.has_video = true;
+    video.initVideoControl();
+    globalThis.groupVideoAuth({ authenticated: true, can_admin: true });
+    button.click();
+    await settle();
+    const toggle = document.body.querySelector("#admin-video-toggle");
+    const close = document.body.querySelector(".video-player-close");
+    (action === "hide" ? toggle : close).click();
+    assert.equal(document.body.querySelector(".video-player"), null);
+    assert.equal(scenario.videos[0].src, "");
+    button.click(); // Stop the first accepted request.
+    button.click(); // Select the next member while suppressed.
+    await settle();
+    assert.equal(scenario.videos.length, 1);
+    assert.equal(document.body.querySelector(".video-player"), null);
+    scenario.time = 1.75;
+    toggle.click();
+    const reopened = scenario.videos[1];
+    reopened.canplay();
+    assert.match(reopened.src, /\/second\/video$/);
+    assert.equal(reopened.currentTime, 1.75);
+    assert.equal(reopened.paused, false);
+  });
+}
+
+test("audio-only group member leaves an existing clip selected without creating a visual stream", async (t) => {
+  const { app, scenario } = await fixture(t);
+  const { first, button } = seedGroup(app);
+  first.has_video = true;
+  button.click();
+  await settle();
+  const visual = scenario.videos[0];
+  button.click();
+  button.click();
+  await settle();
+  frame(scenario);
+  assertPlaying(button, "second");
+  assert.equal(scenario.videos.length, 1);
+  assert.match(visual.src, /\/first\/video$/);
+  assert.equal(visual.paused, true);
+  assert.equal(scenario.posts.length, 4);
+});
+
+test("non-admin group playback never opens the authenticated viewer", async (t) => {
+  const { app, scenario } = await fixture(t, { admin: false });
+  const { first, button } = seedGroup(app);
+  first.has_video = true;
+  button.click();
+  await settle();
+  assertPlaying(button, "first");
+  assert.equal(scenario.sources[0].started, true);
+  assert.equal(scenario.videos.length, 0);
+});
+
+test("shared group deep-link opens its selected clip through the same canonical handler", async (t) => {
+  const { app, scenario } = await fixture(t);
+  const { first } = seedGroup(app);
+  first.has_video = true;
+  window.location = { href: "https://soundbot.test/?sound=mix", search: "?sound=mix" };
+  app.handleDeepLink();
+  const overlay = document.body.querySelector(".deep-link-overlay");
+  const button = overlay.querySelector(".group-button");
+  button.click();
+  await settle();
+  const visual = scenario.videos[0];
+  scenario.time = 0.8;
+  visual.canplay();
+  assert.match(visual.src, /\/first\/video$/);
+  assert.equal(visual.currentTime, 0.8);
+  assert.equal(visual.paused, false);
+  assert.equal(scenario.sources[0].started, true);
+});

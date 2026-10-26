@@ -6,6 +6,7 @@ A Discord soundboard bot with a web interface. Browse and search sounds on a web
 
 - **Web Interface**: Browse, search, and preview sounds from a responsive web UI
 - **Group previews**: Click a group to play a shuffled member; click it again while loading or playing to stop. Stopping does not advance the shuffle or record another play. A group's highlight and progress belong to that exact preview request and clear when another sound or group replaces it, even when both select the same member.
+- **Group clips**: Authenticated group previews, including shared group links, automatically open the selected member's clip and retarget the existing muted viewer to its audio clock. Audio-only members leave the viewer unchanged; Hide video and Close suppress automatic reopening until Show video is selected.
 - **Discord Integration**: Play sounds in voice channels via slash commands
 - **Sound Management**: Add sounds from URLs (supports any site yt-dlp can download from)
 
