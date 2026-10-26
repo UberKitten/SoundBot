@@ -38,7 +38,7 @@ const stubs = new Map([
       const parsed = typeof value === "number" ? Math.floor(value) : parseInt(value, 10);
       return Number.isNaN(parsed) ? undefined : parsed;
     }
-    export function scheduleBackgroundTask(task) { queueMicrotask(task); }
+    export function scheduleBackgroundTask(task) { globalThis.scheduleGroupChange(task); }
     export function setError(error) { throw error; }
     export function setInfo() {}
   `)],
@@ -163,7 +163,10 @@ async function settle() {
 }
 
 async function fixture(t, options = {}) {
-  const scenario = { posts: [], fetches: [], sources: [], media: [], frames: new Map(), time: 0 };
+  const scenario = { posts: [], fetches: [], sources: [], media: [], frames: new Map(), changes: [], time: 0 };
+  globalThis.scheduleGroupChange = options.deferChanges
+    ? (task) => scenario.changes.push(task)
+    : (task) => queueMicrotask(task);
   let nextFrame = 0;
   class FakeSource {
     started = false;
@@ -222,7 +225,9 @@ async function fixture(t, options = {}) {
   globalThis.history = { replaceState() {} };
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
-    value: { userAgent: "Mozilla/5.0 Firefox/141.0", platform: "Linux x86_64", maxTouchPoints: 0 },
+    value: options.mediaEngine
+      ? { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile Safari/604.1", platform: "iPhone", maxTouchPoints: 5 }
+      : { userAgent: "Mozilla/5.0 Firefox/141.0", platform: "Linux x86_64", maxTouchPoints: 0 },
   });
   globalThis.AudioContext = FakeAudioContext;
   globalThis.requestAnimationFrame = (callback) => {
@@ -510,3 +515,108 @@ test("dynamically added and deep-linked groups share the toggle factory and exac
   assertIdle(deepLinked);
   assert.equal(document.body.children.length, 0);
 });
+
+function frame(scenario) {
+  const callbacks = [...scenario.frames.values()];
+  scenario.frames.clear();
+  callbacks.forEach((callback) => callback());
+}
+
+for (const engine of ["buffer", "fallback", "media"]) {
+  for (const replacement of ["standalone", "same sound", "group", "shared group"]) {
+    test(`${engine}: frame clears interrupted group before deferred events (${replacement})`, async (t) => {
+      const { app, audio, scenario } = await fixture(t, {
+        deferChanges: true,
+        mediaEngine: engine === "media",
+        ...(engine === "fallback" ? {
+          decodeAudio: async () => { throw new Error("use fallback"); },
+        } : {}),
+      });
+      const { first, second, button } = seedGroup(app);
+      button.click();
+      await settle();
+      scenario.time = 4;
+      scenario.media.forEach((media) => { media.currentTime = 4; });
+      frame(scenario);
+      assert.equal(button.style.getPropertyValue("--progress"), "40%");
+      const member = replacement === "same sound" || replacement === "shared group" ? first : second;
+      let other;
+      let clock;
+      if (replacement.includes("group")) {
+        other = app.createGroupButton(group("other", [member.name]));
+        other.click();
+      } else {
+        clock = audio.playMainAudio(member);
+      }
+      await settle();
+      scenario.time = 7;
+      scenario.media.at(-1) && (scenario.media.at(-1).currentTime = 3);
+      frame(scenario);
+      assertIdle(button);
+      if (other) {
+        assertPlaying(other, member.name);
+        assert.equal(other.style.getPropertyValue("--progress"), "30%");
+      } else {
+        assert.equal(clock.state, "playing");
+      }
+      assert.equal(scenario.frames.size, other ? 1 : 0);
+      scenario.changes.splice(0).forEach((change) => change());
+      assertIdle(button);
+      if (other) assertPlaying(other, member.name);
+      button.click();
+      await settle();
+      frame(scenario);
+      assertPlaying(button, second.name);
+      if (other) assertIdle(other);
+      else assert.equal(clock.state, "stopped");
+      audio.stopMainAudio();
+      frame(scenario);
+      assertIdle(button);
+      assert.equal(scenario.frames.size, 0);
+    });
+  }
+
+  test(`${engine}: pending replacement, failure and natural end cannot leave a group frame`, async (t) => {
+    const pending = deferred();
+    let attempts = 0;
+    const { app, audio, scenario } = await fixture(t, {
+      deferChanges: true,
+      mediaEngine: engine === "media",
+      decodeAudio: engine === "fallback"
+        ? async () => { throw new Error("use fallback"); }
+        : () => ++attempts === 2 ? pending.promise : Promise.resolve(decodedBuffer()),
+      playMedia: engine === "buffer" ? undefined
+        : () => ++attempts === 2 ? pending.promise : Promise.resolve(),
+    });
+    const { first, second, button } = seedGroup(app);
+    button.click();
+    await settle();
+    const replacement = audio.playMainAudio(second);
+    await settle();
+    assert.equal(replacement.state, "pending");
+    frame(scenario);
+    assertIdle(button);
+    assert.equal(scenario.frames.size, 0);
+    // Retrigger the original member while the replacement is still pending.
+    app.groupShuffleBags.set("mix", [first.name]);
+    button.click();
+    await settle();
+    assertPlaying(button, first.name);
+    pending.reject(new Error("late replaced request"));
+    await settle();
+    frame(scenario);
+    assertPlaying(button, first.name);
+    if (engine === "buffer") scenario.sources.at(-1).finish();
+    else scenario.media.at(-1).fail();
+    frame(scenario);
+    assertIdle(button);
+    assert.equal(scenario.frames.size, 0);
+    button.click();
+    await settle();
+    if (engine === "buffer") scenario.sources.at(-1).finish();
+    else scenario.media.at(-1).finish();
+    frame(scenario);
+    assertIdle(button);
+    assert.equal(scenario.frames.size, 0);
+  });
+}

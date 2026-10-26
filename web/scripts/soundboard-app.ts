@@ -636,6 +636,11 @@ export class SoundboardApp extends HTMLElement {
       if (progressId !== null) return;
       button.classList.add("single-playing");
       const tick = () => {
+        // Change notifications are deferred; replacement can happen before this frame.
+        if (!playback || playback.state === "stopped") {
+          updateProgress();
+          return;
+        }
         button.style.setProperty("--progress", `${getMainAudioProgress() * 100}%`);
         progressId = requestAnimationFrame(tick);
       };
