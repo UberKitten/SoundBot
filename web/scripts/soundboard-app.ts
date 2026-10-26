@@ -1,10 +1,10 @@
+import type { AudioPlayback } from "audio";
 import {
   Sound,
   SoundGroup,
   addMainAudioChangeListener,
   getMainAudioProgress,
   isSoundObject,
-  isMainAudioActive,
   playMainAudio,
   stopMainAudio,
 } from "audio";
@@ -621,6 +621,7 @@ export class SoundboardApp extends HTMLElement {
     button.dataset.copyText = `${getRandomPrefix()}${group.name}`;
 
     let progressId: number | null = null;
+    let playback: AudioPlayback | undefined;
 
     const stopProgress = () => {
       if (progressId !== null) {
@@ -641,14 +642,16 @@ export class SoundboardApp extends HTMLElement {
       progressId = requestAnimationFrame(tick);
     };
 
-    addMainAudioChangeListener(() => {
-      if (button.dataset.playingSound && isMainAudioActive()) {
+    const updateProgress = () => {
+      if (playback && playback.state !== "stopped") {
         startProgress();
       } else {
+        playback = undefined;
         stopProgress();
         delete button.dataset.playingSound;
       }
-    });
+    };
+    addMainAudioChangeListener(updateProgress);
 
     // Touch long-press opens the same menu (iOS never fires contextmenu for a
     // long-press). Registered before contextmenu for Android double-fire order.
@@ -661,12 +664,18 @@ export class SoundboardApp extends HTMLElement {
     });
 
     button.addEventListener("click", () => {
+      // Stop this group's accepted request before consuming another shuffle member.
+      if (playback && playback.state !== "stopped") {
+        stopMainAudio();
+        updateProgress();
+        return;
+      }
       const member = this.pickFromGroup(group);
       const sound = this.sounds.find((s) => s.name === member);
       if (sound) {
-        button.dataset.playingSound = sound.name;
-        playMainAudio(sound);
-        startProgress();
+        playback = playMainAudio(sound);
+        if (playback) button.dataset.playingSound = sound.name;
+        updateProgress();
         // Record group play
         fetch(`${GROUPS_API_PATH}/${encodeURIComponent(group.name)}/play`, {
           method: "POST",
